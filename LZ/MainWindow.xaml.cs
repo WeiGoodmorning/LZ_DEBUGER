@@ -272,6 +272,11 @@ namespace LZ
                                     AppendLog("配置文件接收成功!\r\n");
                                     break;
 
+                                case 0x95:
+                                    AppendLog($"pathfile{Encoding.UTF8.GetString(msg).TrimEnd('\0')}");
+                                    Refresh_Track(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
+                                    break;
+
                                 case 0x81:
                                     sSendBack = BytesToStruct<SendBack>(msg, 0);
                                     //byte[] ackTuple = new byte[4] { data[8], data[9], data[10], data[11] };
@@ -1113,32 +1118,38 @@ namespace LZ
 
         }
 
-        private void Refresh_Track_Button_Click_1(object sender, RoutedEventArgs e)
+        private void Refresh_Track(string pathfile)
         {
-            try
+
+
+            Dispatcher.Invoke(() =>
             {
-                // 1. SFTP下载文件到assets目录
-                string localFilePath = DownloadFileFromSftp();
-                // 2. 解析文档中的Track轨迹
-                List<TrackPoint> trackPoints = ParseTrackFromFile(localFilePath);
-                CalculateImgScaleAndOffset();
+                try
+                {
+                    // 1. SFTP下载文件到assets目录
+                    string localFilePath = DownloadFileFromSftp(pathfile);
+                    // 2. 解析文档中的Track轨迹
+                    List<TrackPoint> trackPoints = ParseTrackFromFile(localFilePath);
+                    CalculateImgScaleAndOffset();
 
-                // 步骤3：计算轨迹起点（Canvas中的实际坐标）和轨迹缩放比例
-                CalculateTrackStartAndScale();
+                    // 步骤3：计算轨迹起点（Canvas中的实际坐标）和轨迹缩放比例
+                    CalculateTrackStartAndScale();
 
-                // 3. 在Canvas上绘制轨迹
-                DrawTrackOnCanvas(trackPoints);
+                    // 3. 在Canvas上绘制轨迹
+                    DrawTrackOnCanvas(trackPoints);
 
-                MessageBox.Show("轨迹显示成功！", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"操作失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+                    MessageBox.Show("轨迹显示成功！", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"操作失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            });
+            
         }
 
 
-        private string DownloadFileFromSftp()
+        private string DownloadFileFromSftp(string pathfile)
         {
             // SFTP配置（根据实际情况修改用户名和密码）
             string sftpHost = server_ip.Text;
@@ -1155,8 +1166,8 @@ namespace LZ
                 AppendLog("Mkdir\r\n");
                 Directory.CreateDirectory(localDir);
             }
-            string localFilePath = System.IO.Path.Combine(localDir, "CPFA.XYZ");
-            remoteFilePath = remoteFilePath + "CPFA.XYZ";
+            string localFilePath = System.IO.Path.Combine(localDir, pathfile);
+            remoteFilePath = remoteFilePath + pathfile;
 
             AppendLog($"LocalFilePath {localFilePath}\r\n");
             AppendLog($"RemoteFilePath {remoteFilePath}\r\n");
@@ -1594,6 +1605,42 @@ namespace LZ
             TrackScale_Y = OriginalLanePixelWidth * ImgScale_Y / ActualLaneWidth;
             AppendLog($"ImgScale:{ImgScale_X},TrackScale:{TrackScale_X}");
         }
+        public void Refresh_Track_Button_Click_1(object sender, RoutedEventArgs e)
+{
+            debugData.Header1 = 0xAA;
+            debugData.Header2 = 0x55;
+            debugData.DeviceType = 0x01; // 假设设备类型为1
+            debugData.FunctionCode = 0x0075; // 假设功能码为1
+            string paramStr = "PATH_READ";
+
+            // 将字符串转换为字节数组并赋值给FuntionParameter
+            byte[] paramBytes = Encoding.UTF8.GetBytes(paramStr);
+            debugData.Length = (uint)paramBytes.Length;
+            // 确保不超过数组大小限制
+            // int copyLength = Math.Min(paramBytes.Length, debugData.FuntionParamter.Length);
+            Array.Copy(paramBytes, debugData.FuntionParamter, debugData.Length);
+            // debugData.Length = (uint)copyLength; // 设置实际参数长度
+
+            // 通过TCP发送debugData
+            if (_client != null && _client.Connected && _stream != null)
+            {
+                try
+                {
+                    byte[] dataToSend = StructStreamReader.StructToByteArray(debugData);
+                    _stream.Write(dataToSend, 0, dataToSend.Length);
+                    AppendLog($"已发送轨迹请求 {dataToSend.Length} 字节数据\r\n");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"获取轨迹请求发送失败: {ex.Message}\r\n");
+                }
+            }
+            else
+            {
+                AppendLog("TCP连接未建立，无法发送数据\r\n");
+            }
+        }
+
 
     }
 }

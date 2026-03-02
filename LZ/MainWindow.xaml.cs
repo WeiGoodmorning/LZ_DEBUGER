@@ -1,9 +1,15 @@
-﻿using HandyControl.Tools;
+﻿using FluentFTP;
+using HandyControl.Tools;
+using Org.BouncyCastle.Tls;
+using ProjNet.CoordinateSystems;
+using ProjNet.CoordinateSystems.Transformations;
 using Renci.SshNet;
 using Renci.SshNet.Common;
+using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
@@ -16,8 +22,6 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using ProjNet.CoordinateSystems;
-using ProjNet.CoordinateSystems.Transformations;
 
 namespace LZ
 {
@@ -80,6 +84,13 @@ namespace LZ
         private Point CanvasStartPoint { get; set; }       // 轨迹起点在Canvas中的实际坐标
         private double TrackScale_X { get; set; }            // 轨迹米→像素的缩放比例（米/像素）
         private double TrackScale_Y { get; set; }            // 轨迹米→像素的缩放比例（米/像素）
+
+        public bool isLeftWarningBlinking = false;
+        public bool isRightWarningBlinking = false;
+        float currentVehicleY = 0;
+
+        private FtpClient ftpClient;
+        public bool ftp_connected;
         public MainWindow()
         {
             InitializeComponent();
@@ -97,20 +108,44 @@ namespace LZ
             sSendBack = new SendBack();
             sDebugStatus = new DebugStatus();
             sDebugControlParam = new DebugControlParam();
+            ftpClient = new FtpClient();
+
+            // 构造函数中初始化 transform（在 InitializeComponent(); 和 ftpClient = new FtpClient(); 之后或合适位置）
+            // 保留原有代码行，不要删除其它初始化
+            _trackCanvasScale = new ScaleTransform(1.0, 1.0);
+            _trackCanvasTranslate = new TranslateTransform(0, 0);
+            var trackGroup = new TransformGroup();
+            trackGroup.Children.Add(_trackCanvasScale);
+            trackGroup.Children.Add(_trackCanvasTranslate);
+            TrackCanvas.RenderTransform = trackGroup;
+            TrackCanvas.RenderTransformOrigin = new Point(0, 0);
+
+            _driverScale = new ScaleTransform(1.0, 1.0);
+            _driverTranslate = new TranslateTransform(0, 0);
+            var driverGroup = new TransformGroup();
+            driverGroup.Children.Add(_driverScale);
+            driverGroup.Children.Add(_driverTranslate);
+            Driver.RenderTransform = driverGroup;
+            Driver.RenderTransformOrigin = new Point(0, 0);
+
+            // 监听鼠标滚轮（在窗口预览阶段捕获，便于在 canvas 或 vehicle 上都能触发）
+            this.PreviewMouseWheel += MainWindow_PreviewMouseWheel;
 
             timer = new DispatcherTimer(); // 设置定时器间隔为1000毫秒（1秒）
-            timer.Interval = TimeSpan.FromSeconds(0.5);
+            timer.Interval = TimeSpan.FromSeconds(0.05);
             timer.Tick += UpdateTimer_Tick; // 指定事件触发时调用的方法
             _ctf = new CoordinateTransformationFactory();
             var wgs84 = GeographicCoordinateSystem.WGS84;
             var utm = ProjectedCoordinateSystem.WGS84_UTM(50, true); // Example: UTM zone 50N
             _wgs84ToUtm = _ctf.CreateFromCoordinateSystems(wgs84, utm);
-
+            Restart_Button.IsEnabled = false;
+            Update_Button.IsEnabled = false;
         }
 
         // 定时器事件处理方法
         private void UpdateTimer_Tick(object sender, EventArgs e)
         {
+            UpdateDriverDisplay();
             if (sDebugStatus.robot_status == 0)
             {
                 if (log_warning_checkbox.IsChecked == true)
@@ -142,6 +177,7 @@ namespace LZ
                 }
 
             }
+            UpdateDriverDisplay();
             // 可选：让TextBox自动滚动到最后一行
             //AppendLog($"robotData_part1:{robotData_Part1.SBV}\r\n");
             //textBox3.AppendText($"robotData_part1:{robotData_Part1.Soft_Vertion}\r\n");
@@ -150,7 +186,7 @@ namespace LZ
             //textBox1.SelectionStart = textBox1.TextLength;
             //textBox1.ScrollToCaret();
         }
-        private void Connect_Button_Click(object sender, RoutedEventArgs e)
+        private async void Connect_Button_Click(object sender, RoutedEventArgs e)
         {
             if (Connect_Button.Content.ToString() == "关闭")
             {
@@ -191,6 +227,20 @@ namespace LZ
                     // 更新UI状态
                     AppendLog($"UDP服务器已启动，监听端口 {udp_port}");
                     //AppendLog($"本机IP地址: {string.Join(", ", ipAddresses)}\r\n");
+
+
+                    ftp_connected = await ftpClient.ConnectAsync(server_ip.Text,21,"root","");
+
+                    if (ftp_connected)
+                    {
+                        AppendLog("FTP连接成功！\r\n");
+                        Update_Button.IsEnabled = true;
+                    }
+                    else
+                    {
+                        AppendLog("FTP连接失败！\r\n");
+                    }
+
                     timer.Start();
                     // 更新UI状态
                     // textBox3.AppendText($"UDP服务器已启动，监听端口 {udp_port}\r\n");
@@ -215,6 +265,7 @@ namespace LZ
 
                     AppendLog($"已连接到服务器 {server_ip.Text}:{server_port.Text}");
 
+                    Restart_Button.IsEnabled = true;
                     //client = new TcpClient();
                     //await client.ConnectAsync(server_ip.Text, int.Parse(server_port.Text));
                     //AppendLog("连接成功！\r\n");
@@ -225,7 +276,7 @@ namespace LZ
                 }
                 catch (Exception ex)
                 {
-                    AppendLog($"连接失败: {ex.Message}\r\n");
+                    AppendLog($"连接失败: {ex.Message}，请检查域控程序是否启动\r\n");
                     close_connection();
                     Connect_Button.IsEnabled = true;
 
@@ -314,7 +365,7 @@ namespace LZ
                                     if (sSendBack.ack == 1)
                                     {
                                         MessageBox.Show("配置写入成功!", "配置写入");
-                                        //Dispatcher.Invoke(() => CustomMessageBox.Show("配置写入成功!"));
+
                                         AppendLog(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
                                     }
                                     else
@@ -1108,9 +1159,108 @@ namespace LZ
             }
         }
 
-        private void Update_Button_Click(object sender, RoutedEventArgs e)
+        private async void Update_Button_Click(object sender, RoutedEventArgs e)
         {
+            // 1. 弹出文件选择框
+            var openFileDialog = new Microsoft.Win32.OpenFileDialog();
+            openFileDialog.Filter = "所有文件 (*.*)|*.*";
+            openFileDialog.Title = "选择要上传的文件";
 
+            //if (openFileDialog.ShowDialog() == true)
+            //{
+            //    string selectedFilePath = openFileDialog.FileName;
+            //    string fileName = System.IO.Path.GetFileName(selectedFilePath);
+
+            //    AppendLog($"开始上传文件: {fileName}\r\n");
+
+            //    try
+            //    {
+            //        string remoteDir = "/home/root/";
+            //        string backupDir = "/home/root/backup/";
+            //        string originalFile = "driverobot_arm";
+            //        string backupFile = $"driverobot_arm_backup_{DateTime.Now:yyyyMMdd_HHmmss}";
+
+            //        try
+            //        {
+            //            bool backupDirExists = await ftpClient.FileExistsAsync(backupDir);
+            //            if (!backupDirExists)
+            //            {
+            //                AppendLog("创建backup文件夹...\r\n");
+            //                await ftpClient.CreateDirectoryAsync(backupDir);
+            //                AppendLog("backup文件夹创建成功\r\n");
+            //            }
+            //        }
+            //        catch (Exception ex)
+            //        {
+            //            AppendLog($"创建backup文件夹失败: {ex.Message}\r\n");
+            //            // 继续执行，可能文件夹已存在
+            //        }
+
+            //        // 4. 备份原有的driverobot_arm文件到backup文件夹
+            //        bool fileExists = await ftpClient.FileExistsAsync(remoteDir + originalFile);
+
+            //        if (fileExists)
+            //        {
+            //            AppendLog("发现原有driverobot_arm文件，开始备份到backup文件夹...\r\n");
+
+            //            try
+            //            {
+            //                // 先下载原文件到临时位置
+            //                MoveFileAsync();
+            //            }
+            //            catch (Exception ex)
+            //            {
+            //                AppendLog($"备份失败: {ex.Message}\r\n");
+            //                MessageBox.Show($"备份文件失败: {ex.Message}", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+            //            }
+            //        }
+            //        else
+            //        {
+            //            AppendLog("未发现原有driverobot_arm文件，跳过备份步骤\r\n");
+            //        }
+
+            //        // 5. 上传新文件
+            //        AppendLog("开始上传新文件...\r\n");
+            //        string remoteFilePath = remoteDir + originalFile;
+
+            //        await ftpClient.UploadFileAsync(selectedFilePath, remoteFilePath);
+
+            //        AppendLog($"文件上传成功: {fileName} -> {remoteFilePath}\r\n");
+
+            //        // 6. 为上传的文件设置可执行权限
+            //        AppendLog("设置文件可执行权限...\r\n");
+            //        bool permissionSet = await ftpClient.SetFilePermissionsAsync(remoteFilePath, "111");
+
+            //        if (permissionSet)
+            //        {
+            //            AppendLog("文件权限设置成功 (755)\r\n");
+            //        }
+            //        else
+            //        {
+            //            AppendLog("警告：文件权限设置失败\r\n");
+            //            MessageBox.Show("文件权限设置失败，可能需要手动设置权限", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+            //        }
+
+            //        // 7. 验证上传结果
+            //        bool uploadVerified = await ftpClient.FileExistsAsync(remoteFilePath);
+            //        if (uploadVerified)
+            //        {
+            //            AppendLog("文件上传验证成功\r\n");
+            //            MessageBox.Show("文件上传成功！权限已设置为可执行。", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            //        }
+            //        else
+            //        {
+            //            AppendLog("警告：文件上传验证失败\r\n");
+            //            MessageBox.Show("文件上传验证失败，请检查服务器状态", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+            //        }
+            //    }
+            //    catch (Exception ex)
+            //    {
+            //        AppendLog($"文件上传失败: {ex.Message}\r\n");
+            //        MessageBox.Show($"文件上传失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+
+            //    }
+            //}
         }
 
         private void Refresh_Track_Button_Click(object sender, RoutedEventArgs e)
@@ -1118,16 +1268,28 @@ namespace LZ
 
         }
 
-        private void Refresh_Track(string pathfile)
+        private async void Refresh_Track(string pathfile)
         {
 
 
-            Dispatcher.Invoke(() =>
+            Dispatcher.Invoke(async () =>
             {
                 try
                 {
                     // 1. SFTP下载文件到assets目录
-                    string localFilePath = DownloadFileFromSftp(pathfile);
+                    string localDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets");
+
+                    if (!Directory.Exists(localDir))
+                    {
+                        AppendLog("Mkdir\r\n");
+                        Directory.CreateDirectory(localDir);
+                    }
+                    pathfile += ".XYZ";
+                    string localFilePath = System.IO.Path.Combine(localDir, pathfile);
+                    string remoteFilePath = "/home/root/custapp/configure/" + pathfile;
+
+                    await ftpClient.DownloadFileAsync(remoteFilePath, localFilePath);
+
                     // 2. 解析文档中的Track轨迹
                     List<TrackPoint> trackPoints = ParseTrackFromFile(localFilePath);
                     CalculateImgScaleAndOffset();
@@ -1149,14 +1311,15 @@ namespace LZ
         }
 
 
-        private string DownloadFileFromSftp(string pathfile)
+        private async Task<string> DownloadFileFromSftp(string pathfile)
         {
             // SFTP配置（根据实际情况修改用户名和密码）
             string sftpHost = server_ip.Text;
             int sftpPort = 22; // 默认SFTP端口
-            string sftpUsername = "wch"; // 通常SFTP用户名是root，需确认
-            string sftpPassword = "1234"; // 替换为实际SFTP密码
-            string remoteFilePath = "/home/wch/code/lz_driver_robot/config/"; // 远程文件路径
+            string sftpUsername = "book"; // 通常SFTP用户名是root，需确认
+            string sftpPassword = "123456"; // 替换为实际SFTP密码
+            string remoteFilePath = "/home/book/"; // 远程文件路径
+            //string remoteFilePath = "/home/wch/wch/lizhong/lz_driver_robot/config/"; // 远程文件路径
 
             // 本地路径：项目输出目录下的assets文件夹
             string localDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets");
@@ -1166,57 +1329,24 @@ namespace LZ
                 AppendLog("Mkdir\r\n");
                 Directory.CreateDirectory(localDir);
             }
+            pathfile += ".XYZ";
             string localFilePath = System.IO.Path.Combine(localDir, pathfile);
             remoteFilePath = remoteFilePath + pathfile;
 
             AppendLog($"LocalFilePath {localFilePath}\r\n");
             AppendLog($"RemoteFilePath {remoteFilePath}\r\n");
             SftpClient sftpClient = null;
+
             try
             {
-                // 1. 初始化SFTP客户端
-                sftpClient = new SftpClient(sftpHost, sftpPort, sftpUsername, sftpPassword);
-                sftpClient.Connect(); // 建立连接
+                
+                await ftpClient.DownloadFileAsync(remoteFilePath, localFilePath);
 
-                // 2. 验证远程文件是否存在
-                if (!sftpClient.Exists(remoteFilePath))
-                {
-                    MessageBox.Show($"远程文件不存在！路径：{remoteFilePath}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-
-                // 3. 下载远程文件到本地临时路径（用FileStream确保文件流安全释放）
-                using (var localFileStream = new FileStream(localFilePath, FileMode.Create, FileAccess.Write))
-                {
-                    sftpClient.DownloadFile(remoteFilePath, localFileStream);
-                }
-                MessageBox.Show($"文件已从服务器下载到本地临时路径：\n{localFilePath}", "下载成功", MessageBoxButton.OK, MessageBoxImage.Information);
-
+                MessageBox.Show("文件下载成功!", "成功",MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                // 捕获常见异常（连接失败、权限不足、网络超时等）
-                string errorMsg = ex switch
-                {
-                    SshConnectionException => "SFTP连接失败！请检查服务器IP、端口、用户名密码是否正确，或服务器是否开启SSH服务。",
-                    SftpPermissionDeniedException => "权限不足！无法读取远程文件，请确认用户有 /home/root/ 路径的访问权限。",
-                    IOException => "文件读写失败！请检查本地临时路径是否可写，或远程文件是否被占用。",
-                    _ => $"未知错误：{ex.Message}"
-                };
-                MessageBox.Show(errorMsg, "操作失败", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                // 5. 清理资源：关闭SFTP连接 + （可选）删除本地临时文件
-                if (sftpClient != null && sftpClient.IsConnected)
-                {
-                    sftpClient.Disconnect();
-                }
-                // 可选：读取完成后删除临时文件（避免占用空间）
-                //if (File.Exists(localTempPath))
-                //{
-                //    File.Delete(localTempPath);
-                //    // MessageBox.Show("本地临时文件已清理", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                //}
+                MessageBox.Show($"下载错误: {ex.Message}", "错误",MessageBoxButton.OK, MessageBoxImage.Error);
             }
 
             return localFilePath;
@@ -1357,9 +1487,9 @@ namespace LZ
 
                 // 米级轨迹点 → Canvas像素坐标（相对于起点偏移）
                 double x1 = CanvasStartPoint.X + p1.X*TrackScale_X;
-                double y1 = CanvasStartPoint.Y + p1.Y*TrackScale_Y;
+                double y1 = CanvasStartPoint.Y - p1.Y*TrackScale_Y;
                 double x2 = CanvasStartPoint.X + p2.X*TrackScale_X;
-                double y2 = CanvasStartPoint.Y + p2.Y*TrackScale_Y;
+                double y2 = CanvasStartPoint.Y - p2.Y*TrackScale_Y;
 
                 var line = new Line
                 {
@@ -1440,8 +1570,8 @@ namespace LZ
             double scale = 10.0; // 1米 → 10像素（可按需调整）
             //double canvasCenterX = TrackCanvas.ActualWidth / 2;
             //double canvasCenterY = TrackCanvas.ActualHeight / 2;
-            double canvasX = CanvasStartPoint.X + dx * scale;
-            double canvasY = CanvasStartPoint.Y - dy * scale; // Canvas Y轴向下，取反
+            double canvasX = CanvasStartPoint.X + dx * TrackScale_X;
+            double canvasY = CanvasStartPoint.Y - dy * TrackScale_Y; // Canvas Y轴向下，取反
 
             // 步骤4：创建车辆图片元素
             Image carImage = new Image();
@@ -1451,7 +1581,8 @@ namespace LZ
             carImage.Height = 20; // 车辆图片高度（按需调整，保持比例）
 
             // 步骤5：计算车辆旋转角度（将弧度航向角转为角度，用于RotateTransform）
-            double rotationAngle = (BLH_VUT.Heading - BLH_Origin.Heading) * (180 / Math.PI);
+            //double rotationAngle = (BLH_VUT.Heading - BLH_Origin.Heading) * (180 / Math.PI);
+            double rotationAngle = (BLH_VUT.Heading - BLH_Origin.Heading);
             // 若BLH_VUT.Heading本身是“角度”，则无需转弧度，直接用：
             // double rotationAngle = BLH_VUT.Heading - BLH_Origin.Heading;
 
@@ -1567,6 +1698,60 @@ namespace LZ
             }
         }
 
+        private double _zoom = 1.0;
+        private readonly double _minZoom = 0.2;
+        private readonly double _maxZoom = 5.0;
+        private ScaleTransform _trackCanvasScale;
+        private TranslateTransform _trackCanvasTranslate;
+        private ScaleTransform _driverScale;
+        private TranslateTransform _driverTranslate;
+
+        // 新增方法：处理滚轮缩放（添加到类中）
+        private void MainWindow_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            // 只在鼠标在 TrackCanvas 或 Driver 上时响应缩放（避免干扰其它控件）
+            Point posOnTrack = e.GetPosition(TrackCanvas);
+            bool overTrack = posOnTrack.X >= 0 && posOnTrack.Y >= 0 && posOnTrack.X <= TrackCanvas.ActualWidth && posOnTrack.Y <= TrackCanvas.ActualHeight;
+            Point posOnDriver = e.GetPosition(Driver);
+            bool overDriver = posOnDriver.X >= 0 && posOnDriver.Y >= 0 && posOnDriver.X <= Driver.ActualWidth && posOnDriver.Y <= Driver.ActualHeight;
+
+            if (!overTrack && !overDriver) return;
+
+            double zoomFactor = e.Delta > 0 ? 1.1 : 1.0 / 1.1;
+            double newZoom = Math.Clamp(_zoom * zoomFactor, _minZoom, _maxZoom);
+            double scaleChange = newZoom / _zoom;
+            if (Math.Abs(scaleChange - 1.0) < 1e-6) return;
+
+            // 对 TrackCanvas 使用相对于 TrackCanvas 的鼠标位置，保持鼠标指针下的内容不动
+            if (overTrack)
+            {
+                // 当前 translate + 缩放后保持鼠标点不动的公式： translate' = translate - mousePos * (scaleChange - 1)
+                _trackCanvasTranslate.X = _trackCanvasTranslate.X - (posOnTrack.X * (scaleChange - 1));
+                _trackCanvasTranslate.Y = _trackCanvasTranslate.Y - (posOnTrack.Y * (scaleChange - 1));
+                _trackCanvasScale.ScaleX = newZoom;
+                _trackCanvasScale.ScaleY = newZoom;
+            }
+
+            // 对 Driver 使用相对于 Driver 的鼠标位置（同样逻辑）
+            if (overDriver)
+            {
+                _driverTranslate.X = _driverTranslate.X - (posOnDriver.X * (scaleChange - 1));
+                _driverTranslate.Y = _driverTranslate.Y - (posOnDriver.Y * (scaleChange - 1));
+                _driverScale.ScaleX = newZoom;
+                _driverScale.ScaleY = newZoom;
+            }
+
+            // 同步两者的缩放值（确保在只对其中一个控件滚轮时，另一个也按相同比例缩放）
+            // 如果你希望严格要求只有同时鼠标在两个控件上才同步，可移除下面两行
+            _trackCanvasScale.ScaleX = newZoom;
+            _trackCanvasScale.ScaleY = newZoom;
+            _driverScale.ScaleX = newZoom;
+            _driverScale.ScaleY = newZoom;
+
+            _zoom = newZoom;
+            e.Handled = true;
+        }
+
         private void CalculateImgScaleAndOffset()
         {
             // 获取Canvas实际尺寸（需在Window加载后获取，否则为0）
@@ -1641,8 +1826,156 @@ namespace LZ
             }
         }
 
+        private void TabItem_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            var tabItem = sender as TabItem;
+            if (tabItem != null)
+            {
+                DrawCenterLine();
+                UpdateWarningAreas();
+
+                
+
+            }
+        }
+
+        private void UpdateDriverDisplay()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                Track_TTC.Content = robotData_Part2.VUTPF_TTC_interest.ToString("F2");
+                Track_Vel.Content = robotData_Part2.VUTMP_Vertical_velocity.ToString("F2");
+                Track_X.Content = robotData_Part2.VUTMP_Actual_X.ToString("F2");
+                Track_Y.Content = robotData_Part2.VUTPF_Lateral_Err.ToString("F2");
+            });
+
+            // 获取车辆Y坐标（模拟数据，实际应从数据结构获取）
+            currentVehicleY = robotData_Part2.VUTPF_Lateral_Err;
+
+            // 更新车辆位置
+            UpdateVehiclePosition();
+
+            // 更新警告闪烁
+            UpdateWarningBlink();
+        }
+        private void UpdateVehiclePosition()
+        {
+            List<UIElement> elementsToRemove = new List<UIElement>();
+            foreach (UIElement element in Driver.Children)
+            {
+                if (element is FrameworkElement fe && fe.Tag != null && fe.Tag.ToString() == "A2")
+                {
+                    elementsToRemove.Add(element);
+                }
+            }
+            foreach (UIElement element in elementsToRemove)
+            {
+                Driver.Children.Remove(element);
+            }
+
+            double canvasWidth = Driver.ActualWidth;
+            double canvasHeight = Driver.ActualHeight;
+            double centerX = canvasWidth / 2;
+            double centerY = canvasHeight / 2;
+
+            // 将Y坐标转换为像素位置（Canvas中心为原点）
+            // Y>0：车辆偏左，Y<0：车辆偏右
+            double vehicleYPixels = centerX + (currentVehicleY * 5);
+
+            
+            // 若BLH_VUT.Heading本身是“角度”，则无需转弧度，直接用：
+            // double rotationAngle = BLH_VUT.Heading - BLH_Origin.Heading;
+            // 步骤4：创建车辆图片元素
+            Image VehicleImage = new Image();
+            VehicleImage.Width = 100;
+            VehicleImage.Height = 60;
+            // 加载PNG图片（路径需根据项目实际情况调整，确保图片“生成操作”为“Resource”）
+            VehicleImage.Source = new BitmapImage(new Uri("pack://application:,,,/assets/VUT.png"));
+
+            double rotationAngle = robotData_Part2.VUTPF_Heading_Err-90;
+            // 步骤6：设置“围绕图片中心旋转”的变换
+            RotateTransform rotateTransform = new RotateTransform(
+                rotationAngle,       // 旋转角度
+                VehicleImage.Width / 2,  // 旋转中心X（图片中心）
+                VehicleImage.Height / 2  // 旋转中心Y（图片中心）
+            );
+            VehicleImage.RenderTransform = rotateTransform;
+            
+            // 设置车辆图片位置（垂直居中）
+            Canvas.SetLeft(VehicleImage, vehicleYPixels - VehicleImage.Width / 2);
+            Canvas.SetTop(VehicleImage, centerY - VehicleImage.Height / 2);
+            VehicleImage.Tag = "A2";
+
+            Driver.Children.Add(VehicleImage);
+        }
+        // / 绘制Canvas中心的虚线
+        private void DrawCenterLine()
+        {
+            double canvasWidth = Driver.ActualWidth;
+            double canvasHeight = Driver.ActualHeight;
+
+            // 中心虚线（Canvas中心为原点）
+            double centerX = canvasWidth / 2;
+            CenterDashedLine.X1 = centerX;
+            CenterDashedLine.Y1 = 0;
+            CenterDashedLine.X2 = centerX;
+            CenterDashedLine.Y2 = canvasHeight;
+        }
+        /// 更新警告区域的大小和位置
+        private void UpdateWarningAreas()
+        {
+            double canvasWidth = Driver.ActualWidth;
+            double canvasHeight = Driver.ActualHeight;
+            double centerX = canvasWidth / 2;
+
+            // 左侧警告区域（从Canvas左边界到中心线）
+            LeftWarningArea.Width = centerX;
+            LeftWarningArea.Height = canvasHeight;
+            Canvas.SetLeft(LeftWarningArea, 0);
+            Canvas.SetTop(LeftWarningArea, 0);
+
+            // 右侧警告区域（从中心线到Canvas右边界）
+            RightWarningArea.Width = centerX;
+            RightWarningArea.Height = canvasHeight;
+            Canvas.SetLeft(RightWarningArea, centerX);
+            Canvas.SetTop(RightWarningArea, 0);
+        }
+
+        private void UpdateWarningBlink()
+        {
+            // 根据Y值控制警告区域闪烁
+            if (robotData_Part2.VUTPF_Lateral_Err < -0.2) // 车辆偏左（Y>0）
+            {
+                isLeftWarningBlinking = !isLeftWarningBlinking;
+                isRightWarningBlinking = false;
+
+                //LeftWarningArea.Fill = isLeftWarningBlinking ? Brushes.Red : Brushes.Transparent;
+                LeftWarningArea.Fill = Brushes.Red;
+                RightWarningArea.Fill = Brushes.Transparent;
+                AppendLog("LEFT WARNING\r\n");
+            }
+            else if (robotData_Part2.VUTPF_Lateral_Err > 0.2) // 车辆偏右（Y<0）
+            {
+                isRightWarningBlinking = !isRightWarningBlinking;
+                isLeftWarningBlinking = false;
+
+                RightWarningArea.Fill = isRightWarningBlinking ? Brushes.Red : Brushes.Transparent;
+                RightWarningArea.Fill = Brushes.Red;
+                LeftWarningArea.Fill = Brushes.Transparent;
+                AppendLog("RIGHT WARNING\r\n");
+            }
+            else // 车辆在中间（Y=0）
+            {
+                isLeftWarningBlinking = false;
+                isRightWarningBlinking = false;
+
+                LeftWarningArea.Fill = Brushes.Transparent;
+                RightWarningArea.Fill = Brushes.Transparent;
+            }
+        }
 
     }
+
 }
 
 

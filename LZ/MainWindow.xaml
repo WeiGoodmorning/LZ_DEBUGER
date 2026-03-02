@@ -12,23 +12,24 @@
             <TabItem Header="连接">
                 <Grid ShowGridLines="True">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="255*"/>
-                        <ColumnDefinition Width="194*"/>
+                        <ColumnDefinition Width="529*"/>
+                        <ColumnDefinition Width="152*"/>
+                        <ColumnDefinition Width="518*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="50"></RowDefinition>
                         <RowDefinition></RowDefinition>
                         <RowDefinition Height="50"></RowDefinition>
                     </Grid.RowDefinitions>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Grid.Row="0">
-                        <TextBox x:Name ="server_ip" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left" Text ="192.168.1.150" hc:InfoElement.Title="域控IP" Width="150" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0"/>
-                        <TextBox x:Name ="server_port" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left" Text ="8201" hc:InfoElement.Title="端口" Width="100" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Grid.Row="0" Grid.ColumnSpan="2">
+                        <TextBox x:Name ="server_ip" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left" Text ="192.168.1.210" hc:InfoElement.Title="域控IP" Width="150" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0"/>
+                        <TextBox x:Name ="server_port" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left" Text ="8202" hc:InfoElement.Title="端口" Width="100" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0"/>
                         <Button x:Name ="Connect_Button" Content="连接" Style="{StaticResource ButtonPrimary}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0" Click="Connect_Button_Click"/>
                         <Button x:Name ="Restart_Button" Content="重启" Style="{StaticResource ButtonPrimary}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0" Click="Restart_Button_Click"/>
                         <Button x:Name ="Update_Button" Content="更新程序" Style="{StaticResource ButtonPrimary}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0" Click="Update_Button_Click"/>
 
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,50" Grid.RowSpan="2">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Grid.Row="1" Grid.ColumnSpan="3" Margin="0,0,0,50" Grid.RowSpan="2">
                         <TextBox x:Name ="log_textbox" Margin="0,0,0,0" TextWrapping="Wrap" Width="800"  />
                         <StackPanel Orientation="Vertical" >
                             <TextBox x:Name ="robot_type" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="域控版本" Width="200" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,20,0,0"/>
@@ -79,7 +80,7 @@
 
 
                                 </StackPanel>
-                                
+
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left"  Margin="160,0,0,0" Grid.Row="2">
                                     <GroupBox  Header="VUT惯导" Width="256"  Height="120" Margin="20,0,0,0">
                                         <Grid>
@@ -115,7 +116,9 @@
                                         <TextBox x:Name="config_log_savedays_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="LOG保存天数" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
                                         <TextBox x:Name="config_data_can_device_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="数据解算CAN接口" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
                                         <TextBox x:Name="config_daq_can_device_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="数采输入CAN接口" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
-                                        <TextBox x:Name="config_headtraker_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="HeadTraker" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
+                                        <TextBox x:Name="config_headtraker_textbox" ToolTip="0表示从惯导读数据，1表示从平板接收数据" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="HeadTraker" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0" >
+
+                                        </TextBox>
                                         <TextBox x:Name="config_save_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Save_Mode" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
 
                                     </StackPanel>
@@ -135,9 +138,9 @@
                             <Grid ShowGridLines="True">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="50"></RowDefinition>
-                                    <RowDefinition Height="280"></RowDefinition>
-                                    <RowDefinition Height="280"></RowDefinition>
+                                    <RowDefinition Height="auto"></RowDefinition>
                                     <RowDefinition ></RowDefinition>
+                                    <RowDefinition Height="auto"></RowDefinition>
                                 </Grid.RowDefinitions>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Grid.Row="0">
                                     <Button x:Name ="Read_Control_Param_Button" Content="读取文件" Style="{StaticResource ButtonPrimary}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0" Click="Read_Control_Param_Button_Click">
@@ -175,7 +178,7 @@
                                             <ColumnDefinition></ColumnDefinition>
                                         </Grid.ColumnDefinitions>
                                         <Grid Grid.Column="0">
-                                            <GroupBox Header="控制参数"  Style="{StaticResource GroupBoxTab.Small}" Margin="0,0,0,0">
+                                            <GroupBox Header="控制参数"  Style="{StaticResource GroupBoxTab.Small}" Margin="0,0,0,-15">
                                                 <Grid ShowGridLines="True" >
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition></ColumnDefinition>
@@ -240,13 +243,108 @@
                                 </GroupBox>
                                 <GroupBox Grid.Row="2" Header="纵向控制" hc:TitleElement.TitlePlacement="Left" >
                                     <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition></RowDefinition>
+                                            <RowDefinition Height="60"></RowDefinition>
+                                        </Grid.RowDefinitions>
+                                        <StackPanel Orientation="Horizontal"  Grid.Row="0">
+                                            <Grid ShowGridLines="True">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="400"></ColumnDefinition>
+                                                    <ColumnDefinition></ColumnDefinition>
+                                                    <ColumnDefinition></ColumnDefinition>
+                                                </Grid.ColumnDefinitions>
+                                                <Grid Grid.Column="0">
+                                                    <GroupBox Header="控制参数"  Style="{StaticResource GroupBoxTab.Small}" Margin="0,0,0,-15">
+                                                        <Grid ShowGridLines="True" >
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition></ColumnDefinition>
+                                                                <ColumnDefinition></ColumnDefinition>
+                                                                <ColumnDefinition></ColumnDefinition>
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel Orientation="Vertical" Grid.Column="0">
+                                                                <TextBox x:Name="cfg_low_kp" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Low_Kp"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_low_ki" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Low_Ki"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_low_kd" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Low_Kd"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_deacceleration_limit" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="加速度限幅"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+
+                                                            </StackPanel>
+                                                            <StackPanel Orientation="Vertical" Grid.Column="1">
+                                                                <TextBox x:Name="cfg_mid_kp" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Mid_Kp"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_mid_ki" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Mid_Ki"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_mid_kd" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Mid_Kd"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_acceleration_limit" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="减速度限幅"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+
+                                                            </StackPanel>
+                                                            <StackPanel Orientation="Vertical" Grid.Column="2">
+                                                                <TextBox x:Name="cfg_high_kp" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="High_Kp"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_high_ki" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="High_Ki"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_high_kd" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="High_Kd"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+
+                                                            </StackPanel>
+
+                                                        </Grid>
+
+                                                    </GroupBox>
+                                                </Grid>
+                                                <Grid Grid.Column="1">
+                                                    <GroupBox Header="临时变量">
+                                                        <Grid>
+                                                            <StackPanel Orientation="Vertical">
+                                                                <TextBox x:Name="cfg_stley_integral" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="stanley_integral"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
+                                                                <TextBox x:Name="cfg_staey_integral_max" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="stanley_integral_max"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
+
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </GroupBox>
+
+                                                </Grid>
+                                                <Grid Grid.Column="2">
+                                                    <GroupBox Header="实时变量">
+                                                        <Grid>
+                                                            <StackPanel Orientation="Vertical">
+                                                                <TextBox x:Name="cfg_oaccfftanley" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="oaccff_stanley"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
+                                                                <TextBox x:Name="cfg_oacf_y" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="oaccff_y"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
+                                                                <TextBox x:Name="cfg_ingral" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="积分    "  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
+
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </GroupBox>
+
+                                                </Grid>
+                                            </Grid>
+                                        </StackPanel>
+                                        <GroupBox Grid.Row="1" Header="速度补偿" hc:TitleElement.TitlePlacement="Left">
+                                            <Grid>
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                                    <TextBox x:Name="cfg_ten" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="10"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_twenty" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="20"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_thirty" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="30"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_forty" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="40"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_fifty" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="50"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_sixty" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="60"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_senventy" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="70"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_eighty" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="80"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_ninety" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="90"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_hundred" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="100"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_hundred_ten" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="110"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+                                                    <TextBox x:Name="cfg_hundred_twenty" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="120"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="80" Height="2"/>
+
+                                                </StackPanel>
+                                            </Grid>
+                                            
+                                        </GroupBox>
+                                    </Grid>
+                                </GroupBox>
+                                <GroupBox Grid.Row="3" Header="ELK/LKA" hc:TitleElement.TitlePlacement="Left">
+                                    <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="400"></ColumnDefinition>
                                             <ColumnDefinition></ColumnDefinition>
                                             <ColumnDefinition></ColumnDefinition>
                                         </Grid.ColumnDefinitions>
                                         <Grid Grid.Column="0">
-                                            <GroupBox Header="控制参数"  Style="{StaticResource GroupBoxTab.Small}" Margin="0,0,0,0">
+                                            <GroupBox Header="控制参数" Style="{StaticResource GroupBoxTab.Small}" Margin="0,0,0,0" >
                                                 <Grid ShowGridLines="True" >
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition></ColumnDefinition>
@@ -254,55 +352,23 @@
                                                         <ColumnDefinition></ColumnDefinition>
                                                     </Grid.ColumnDefinitions>
                                                     <StackPanel Orientation="Vertical" Grid.Column="0">
-                                                        <TextBox x:Name="cfg_low_kp" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Low_Kp"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                        <TextBox x:Name="cfg_low_ki" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Low_Ki"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                        <TextBox x:Name="cfg_low_kd" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Low_Kd"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                        <TextBox x:Name="cfg_deacceleration_limit" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="加速度限幅"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                        <TextBox x:Name="cfg_Xactual" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="释放点坐标"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
 
                                                     </StackPanel>
                                                     <StackPanel Orientation="Vertical" Grid.Column="1">
-                                                        <TextBox x:Name="cfg_mid_kp" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Mid_Kp"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                        <TextBox x:Name="cfg_mid_ki" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Mid_Ki"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                        <TextBox x:Name="cfg_mid_kd" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Mid_Kd"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                        <TextBox x:Name="cfg_acceleration_limit" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="减速度限幅"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                        <TextBox x:Name="cfg_SRtorque" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="SR_Torque"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
 
                                                     </StackPanel>
                                                     <StackPanel Orientation="Vertical" Grid.Column="2">
-                                                        <TextBox x:Name="cfg_high_kp" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="High_Kp"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                        <TextBox x:Name="cfg_high_ki" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="High_Ki"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                        <TextBox x:Name="cfg_high_kd" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="High_Kd"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
 
                                                     </StackPanel>
-                                                </Grid>
 
-                                            </GroupBox>
-                                        </Grid>
-                                        <Grid Grid.Column="1">
-                                            <GroupBox Header="临时变量">
-                                                <Grid>
-                                                    <StackPanel Orientation="Vertical">
-                                                        <TextBox x:Name="cfg_stley_integral" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="stanley_integral"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
-                                                        <TextBox x:Name="cfg_staey_integral_max" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="stanley_integral_max"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
-
-                                                    </StackPanel>
                                                 </Grid>
                                             </GroupBox>
-
                                         </Grid>
-                                        <Grid Grid.Column="2">
-                                            <GroupBox Header="实时变量">
-                                                <Grid>
-                                                    <StackPanel Orientation="Vertical">
-                                                        <TextBox x:Name="cfg_oaccfftanley" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="oaccff_stanley"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
-                                                        <TextBox x:Name="cfg_oacf_y" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="oaccff_y"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
-                                                        <TextBox x:Name="cfg_ingral" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="积分    "  HorizontalAlignment="Left" Margin="0,10,0,0" Width="200"/>
 
-                                                    </StackPanel>
-                                                </Grid>
-                                            </GroupBox>
-
-                                        </Grid>
                                     </Grid>
+
                                 </GroupBox>
                             </Grid>
                         </TabItem>
@@ -560,20 +626,48 @@
                 </Grid>
 
             </TabItem>
-            <TabItem Header="轨迹">
+            <TabItem Header="轨迹" MouseLeftButtonUp="TabItem_MouseLeftButtonUp">
                 <Grid ShowGridLines="True">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="50"></RowDefinition>
+                        <RowDefinition></RowDefinition>
                         <RowDefinition ></RowDefinition>
                     </Grid.RowDefinitions>
                     <StackPanel Grid.Row="0">
                         <Button x:Name="Refresh_Track_Button" Style="{StaticResource ButtonPrimary}" Content="刷新轨迹" HorizontalAlignment="Left" Margin="20,10,0,0" VerticalAlignment="Top" Grid.Row="0" Click="Refresh_Track_Button_Click_1"/>
                     </StackPanel>
-                    <Canvas x:Name="TrackCanvas" Grid.Row="1" Margin="10,120,10,208">
+
+                    <Canvas x:Name="TrackCanvas" Grid.Row="1" Margin="10,10,10,10" >
                         <Canvas.Background>
                             <ImageBrush ImageSource="/line.png" Stretch="Uniform"/>
                         </Canvas.Background>
                     </Canvas>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Grid.Row="2">
+                        <Grid Width="500">
+                            <Label  Content="TTC：" HorizontalAlignment="Left" VerticalAlignment="Top"  FontSize="40" Height="74" Margin="10,0,0,0" Width="200"/>
+                            <Label x:Name="Track_TTC"  HorizontalAlignment="Left" VerticalAlignment="Top"  FontSize="40" Height="74" Margin="210,0,0,0" Width="200"/>
+                            <Label  Content="VEL：" HorizontalAlignment="Left" VerticalAlignment="Top" FontSize="40" Height="74" Margin="10,70,0,0" Width="200"/>
+                            <Label x:Name="Track_Vel"  HorizontalAlignment="Left" VerticalAlignment="Top" FontSize="40" Height="74" Margin="210,70,0,0" Width="200"/>
+                            <Label  Content="X："  HorizontalAlignment="Left" VerticalAlignment="Top" FontSize="40" Height="74" Margin="10,140,0,0" Width="200"/>
+                            <Label x:Name="Track_X"   HorizontalAlignment="Left" VerticalAlignment="Top" FontSize="40" Height="74" Margin="210,140,0,0" Width="200"/>
+                            <Label  Content="Later_ERR：" HorizontalAlignment="Left" VerticalAlignment="Top" FontSize="40" Height="74" Margin="10,210,0,0" Width="200"/>
+                            <Label x:Name="Track_Y" HorizontalAlignment="Left" VerticalAlignment="Top" FontSize="40" Height="74" Margin="210,210,0,0" Width="200"/>
+                        </Grid>
+                        <Canvas x:Name="Driver" Width="600">
+                            <Canvas.Background>
+                                <ImageBrush ImageSource="/assets/lane.png" Stretch="Uniform"/>
+                            </Canvas.Background>
+                            <Rectangle x:Name="LeftWarningArea" Fill="Transparent" Opacity="0.5"/>
+                            <!-- 右侧红色警告区域 -->
+                            <Rectangle x:Name="RightWarningArea" Fill="Transparent" Opacity="0.5"/>
+                            <!-- 中间虚线（中心线） -->
+                            <Line x:Name="CenterDashedLine"  Stroke="Yellow" StrokeThickness="2" StrokeDashArray="5,5"/>
+
+                        </Canvas>
+                    </StackPanel>
+
+
+
                 </Grid>
             </TabItem>
             <TabItem Header="信息"/>

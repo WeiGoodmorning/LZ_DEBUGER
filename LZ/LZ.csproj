@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="FluentFTP" Version="53.0.2" />
     <PackageReference Include="HandyControl" Version="3.5.1" />
     <PackageReference Include="ProjNET" Version="2.1.0" />
     <PackageReference Include="SSH.NET" Version="2025.0.0" />
@@ -21,6 +22,7 @@
   <ItemGroup>
     <Resource Include="line.png" />
     <Resource Include="assets/VUT.png" />
+    <Resource Include="assets/lane.png" />
   </ItemGroup>
 
 </Project>

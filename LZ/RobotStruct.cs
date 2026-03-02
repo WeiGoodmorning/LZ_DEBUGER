@@ -8,6 +8,15 @@ using System.Threading.Tasks;
 
 namespace LZ
 {
+    public class FileInfo
+    {
+        public string Name { get; set; }
+        public string Type { get; set; }
+        public string Size { get; set; }
+        public string ModifiedDate { get; set; }
+        public string Permissions { get; set; }
+    }
+
     public class TrackPoint
     {
         public double X { get; set; }

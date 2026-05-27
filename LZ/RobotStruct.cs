@@ -37,6 +37,31 @@ namespace LZ
         public double Azimuth { get; set; } // 方位角
     }
 
+
+    // 辅助数据结构（用于解析 0x95）
+    public class LaneMetricsItem
+    {
+        public float Distance { get; set; }
+        public float LateralSpeed { get; set; }
+        public float LateralAcc { get; set; }
+        public float TTC { get; set; }
+    }
+
+    public class Vehicle2LaneInfoC
+    {
+        public string ID { get; set; }
+        public string LaneName { get; set; }
+        public int RelativeNum { get; set; }
+        public List<LaneMetricsItem> Metrics { get; set; } = new List<LaneMetricsItem>();
+    }
+
+    public class LaneRelativeDataC
+    {
+        public int LaneNum { get; set; }
+        public List<Vehicle2LaneInfoC> Infos { get; set; } = new List<Vehicle2LaneInfoC>();
+    }
+
+
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct SysStatData  // 系统状态数据
     {
@@ -599,6 +624,13 @@ namespace LZ
         public int vt_ins_status;
     }
 
+    public struct COGStatus
+    {
+        public int sample_count;
+        public float est_cog;
+        public char is_ins_ready;
+    }
+
     public struct DebugControlParam
     {
         // VelocityPID
@@ -613,7 +645,7 @@ namespace LZ
         public float Hig_D;
         public float Acc_Max;
         public float Acc_Min;
-        public float SpeedErrLimit;
+        //public float SpeedErrLimit;
         // VelocityComp
         public float Heading;
         public float ten;
@@ -628,6 +660,7 @@ namespace LZ
         public float hundred;
         public float hundred_ten;
         public float hundred_twenty;
+        public float head_ref;
         // StanelyPara
         public char CurveFlag;  // 0：直线，    1：转弯或者变道
         public char FcwFlag;    //
@@ -638,15 +671,20 @@ namespace LZ
         public float CurveKp2;  // 非直线场景一阶段Kp2
         public float CurveKp3;  // 非直线场景一阶段Kp3
         public float FrontBase; // 前轴长度
-        public float Preview_Point;
-        public float lf_stanley;
+        public float Preview1;
+        public float Preview2;
+        public float Preview3;
+        //public float Preview_Point;
+
+        public float lf10_stanley;
         public float lf20_stanley;
         public float lf30_stanley;
         public float rf10_stanley;
         public float rf20_stanley;
         public float ccrh_stanley;
-        public float ccrh_angle_limit;
-        public float ccrh_speed_limit;
+        public float steer_angle_limit;
+        public float steer_speed_limit;
+
         public float XActual;
         public float SRTortue;
         public float VehicleSpeed;

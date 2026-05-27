@@ -6,6 +6,7 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Shapes;
+using Renci.SshNet;
 
 namespace LZ
 {
@@ -132,12 +133,36 @@ namespace LZ
             }
         }
 
+        //public async Task CreateDirectoryAsync(string remotePath)
+        //{
+        //    try
+        //    {
+        //        var request = CreateFtpRequest(remotePath, WebRequestMethods.Ftp.MakeDirectory);
+        //        using (var response = await request.GetResponseAsync()) { }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        throw new Exception($"创建目录失败: {ex.Message}");
+        //    }
+        //}
+
         public async Task CreateDirectoryAsync(string remotePath)
         {
             try
             {
                 var request = CreateFtpRequest(remotePath, WebRequestMethods.Ftp.MakeDirectory);
                 using (var response = await request.GetResponseAsync()) { }
+            }
+            catch (WebException ex)
+            {
+                var response = ex.Response as FtpWebResponse;
+                // FTP协议中，550状态码对于MKD(创建目录)命令通常意味着“目录已存在”或“无权限”
+                // 在这里我们宽容处理，如果抛出550，直接当做目录已经存在
+                if (response != null && response.StatusCode == FtpStatusCode.ActionNotTakenFileUnavailable)
+                {
+                    return;
+                }
+                throw new Exception($"创建目录失败: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -189,35 +214,88 @@ namespace LZ
             }
         }
 
-        // 设置文件权限（使用SITE CHMOD命令）
-        public async Task<bool> SetFilePermissionsAsync(string remotePath, string permissions)
+
+        // 新增：专门用于判断目录是否存在
+        public async Task<bool> DirectoryExistsAsync(string remotePath)
         {
             try
             {
-
-
-                var request = CreateFtpRequest(remotePath, "SITE CHMOD");
-                //request.Method = WebRequestMethods.Ftp.SendCommand;
-
-                // 构建SITE CHMOD命令
-                string command = $"CHMOD {permissions} {remotePath.Split('/').Last()}";
-                byte[] commandBytes = Encoding.UTF8.GetBytes(command);
-
-                using (var requestStream = await request.GetRequestStreamAsync())
-                {
-                    await requestStream.WriteAsync(commandBytes, 0, commandBytes.Length);
-                }
-
+                // 使用 ListDirectory 命令，如果目录存在且有权限，则会返回成功
+                var request = CreateFtpRequest(remotePath, WebRequestMethods.Ftp.ListDirectory);
                 using (var response = await request.GetResponseAsync())
                 {
                     return true;
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"设置文件权限失败: {ex.Message}");
                 return false;
             }
+        }
+
+        // 设置文件权限（使用SITE CHMOD命令）
+        //public async Task<bool> SetFilePermissionsAsync(string remotePath, string permissions)
+        //{
+        //    try
+        //    {
+
+
+        //        var request = CreateFtpRequest(remotePath, "SITE CHMOD");
+        //        //request.Method = WebRequestMethods.Ftp.SendCommand;
+
+        //        // 构建SITE CHMOD命令
+        //        string command = $"CHMOD {permissions} {remotePath.Split('/').Last()}";
+        //        byte[] commandBytes = Encoding.UTF8.GetBytes(command);
+
+        //        using (var requestStream = await request.GetRequestStreamAsync())
+        //        {
+        //            await requestStream.WriteAsync(commandBytes, 0, commandBytes.Length);
+        //        }
+
+        //        using (var response = await request.GetResponseAsync())
+        //        {
+        //            return true;
+        //        }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        Console.WriteLine($"设置文件权限失败: {ex.Message}");
+        //        return false;
+        //    }
+        //}
+        // 设置文件权限（改用更稳定的 SSH 方式）
+        public async Task<bool> SetFilePermissionsAsync(string remotePath, string permissions)
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    // FTP默认端口是21，SSH默认是22。这里使用已保存的 server, username, password 进行连接
+                    using (var sshClient = new SshClient(server, 22, username, password))
+                    {
+                        sshClient.Connect();
+
+                        // 构建并执行 chmod 命令，注意这里直接对完整路径赋权
+                        string command = $"chmod {permissions} {remotePath}";
+                        var cmd = sshClient.RunCommand(command);
+
+                        sshClient.Disconnect();
+
+                        // ExitStatus 为 0 表示命令执行成功
+                        if (cmd.ExitStatus != 0)
+                        {
+                            Console.WriteLine($"SSH命令返回错误: {cmd.Error}");
+                        }
+
+                        return cmd.ExitStatus == 0;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"设置文件权限失败: {ex.Message}");
+                    return false;
+                }
+            });
         }
 
         // 新增：在 FtpClient 类中添加 MoveFileAsync 方法；并调整 RenameAsync 使其使用传入的 newPath（允许完整路径）

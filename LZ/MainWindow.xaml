@@ -5,12 +5,19 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:LZ"
         xmlns:hc="https://handyorg.github.io/handycontrol" x:Class="LZ.MainWindow"
+        xmlns:gmap="clr-namespace:GMap.NET.WindowsPresentation;assembly=GMap.NET.WindowsPresentation"
         mc:Ignorable="d"
-        Title="MainWindow" Height="750" Width="1200">
+        Title="域控调试助手" Height="750" Width="1200"
+        Icon="/assets/LZ_debugger.png">
+    
     <Grid>
-        <TabControl Margin="0" Style="{StaticResource TabControlCapsuleSolid}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="433*"/>
+            <ColumnDefinition Width="167*"/>
+        </Grid.ColumnDefinitions>
+        <TabControl Style="{StaticResource TabControlCapsuleSolid}" Grid.ColumnSpan="2">
             <TabItem Header="连接">
-                <Grid ShowGridLines="True">
+                <Grid >
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="529*"/>
                         <ColumnDefinition Width="152*"/>
@@ -30,7 +37,7 @@
 
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Grid.Row="1" Grid.ColumnSpan="3" Margin="0,0,0,50" Grid.RowSpan="2">
-                        <TextBox x:Name ="log_textbox" Margin="0,0,0,0" TextWrapping="Wrap" Width="800"  />
+                        <TextBox x:Name ="log_textbox" Margin="0,0,0,0" TextWrapping="Wrap" Width="800" Background="AliceBlue" BorderBrush="Black" BorderThickness="1"  />
                         <StackPanel Orientation="Vertical" >
                             <TextBox x:Name ="robot_type" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="域控版本" Width="200" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,20,0,0"/>
                         </StackPanel>
@@ -55,7 +62,8 @@
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="50"></RowDefinition>
                                     <RowDefinition Height="130"></RowDefinition>
-                                    <RowDefinition Height="Auto"></RowDefinition>
+                                    <RowDefinition Height="160"></RowDefinition>
+                                    <RowDefinition Height="100"></RowDefinition>
                                     <RowDefinition ></RowDefinition>
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Left" Margin="160,0,0,0">
@@ -82,52 +90,112 @@
                                 </StackPanel>
 
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left"  Margin="160,0,0,0" Grid.Row="2">
-                                    <GroupBox  Header="VUT惯导" Width="256"  Height="120" Margin="20,0,0,0">
+                                    <GroupBox Header="VUT惯导" Width="256" Height="150" Margin="20,0,0,0">
                                         <Grid>
-                                            <RadioButton x:Name="config_rb_instype_by" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="北云" HorizontalAlignment="Left" Width="50" Margin="20,0,0,0" VerticalAlignment="Top" />
-                                            <RadioButton x:Name="config_rb_instype_rt" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="RT" HorizontalAlignment="Left" Width="50" Margin="90,0,0,0" VerticalAlignment="Top" />
-                                            <RadioButton x:Name="config_rb_instype_shibo" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="shibo" HorizontalAlignment="Left" Width="60" Margin="165,0,0,0" VerticalAlignment="Top" />
+                                            <RadioButton x:Name="config_rb_instype_by" GroupName="VUT_INS" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="北云" HorizontalAlignment="Left" Width="50" Margin="20,0,0,0" VerticalAlignment="Top" />
+                                            <RadioButton x:Name="config_rb_instype_rt" GroupName="VUT_INS" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="RT" HorizontalAlignment="Left" Width="50" Margin="90,0,0,0" VerticalAlignment="Top" />
+                                            <RadioButton x:Name="config_rb_instype_shibo" GroupName="VUT_INS" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="shibo" HorizontalAlignment="Left" Width="60" Margin="165,0,0,0" VerticalAlignment="Top" />
                                             <TextBox x:Name ="config_ins_ip_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="IP" Width="125" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,40,0,0"/>
                                             <TextBox x:Name ="config_ins_port_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="PORT" Width="80" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="140,40,0,0"/>
+
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="20,85,0,0" VerticalAlignment="Top">
+                                                <StackPanel.Style>
+                                                    <Style TargetType="StackPanel">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsChecked, ElementName=config_rb_instype_by}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </StackPanel.Style>
+                                                <RadioButton x:Name="config_rb_by_unicast" GroupName="VUT_MODE" Content="单播" />
+                                                <RadioButton x:Name="config_rb_by_broadcast" GroupName="VUT_MODE" Content="广播" IsChecked="True" Margin="20,0,0,0"/>
+                                            </StackPanel>
                                         </Grid>
                                     </GroupBox>
-                                    <GroupBox Header="SPT惯导" Width="256" Height="120" Margin="20,0,20,0">
+
+                                    <GroupBox Header="SPT惯导" Width="256" Height="150" Margin="20,0,20,0">
                                         <Grid>
-                                            <RadioButton x:Name="config_rb_instype_by1" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="北云" HorizontalAlignment="Left" Width="50" Margin="20,0,0,0" VerticalAlignment="Top" />
-                                            <RadioButton x:Name="config_rb_instype_rt1" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="RT" HorizontalAlignment="Left" Width="50" Margin="90,0,0,0" VerticalAlignment="Top" />
-                                            <RadioButton x:Name="config_rb_instype_shibo1" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="shibo" HorizontalAlignment="Left" Width="60" Margin="165,0,0,0" VerticalAlignment="Top" />
+                                            <RadioButton x:Name="config_rb_instype_by1" GroupName="SPT_INS" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="北云" HorizontalAlignment="Left" Width="50" Margin="20,0,0,0" VerticalAlignment="Top" />
+                                            <RadioButton x:Name="config_rb_instype_rt1" GroupName="SPT_INS" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="RT" HorizontalAlignment="Left" Width="50" Margin="90,0,0,0" VerticalAlignment="Top" />
+                                            <RadioButton x:Name="config_rb_instype_shibo1" GroupName="SPT_INS" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="shibo" HorizontalAlignment="Left" Width="60" Margin="165,0,0,0" VerticalAlignment="Top" />
                                             <TextBox x:Name ="config_ins_ip_textbox1" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="IP" Width="125" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,40,0,0"/>
                                             <TextBox x:Name ="config_ins_port_textbox1" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="PORT" Width="80" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="140,40,0,0"/>
+
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="20,85,0,0" VerticalAlignment="Top">
+                                                <StackPanel.Style>
+                                                    <Style TargetType="StackPanel">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsChecked, ElementName=config_rb_instype_by1}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </StackPanel.Style>
+                                                <RadioButton x:Name="config_rb_by_unicast1" GroupName="SPT_MODE" Content="单播" />
+                                                <RadioButton x:Name="config_rb_by_broadcast1" GroupName="SPT_MODE" Content="广播" IsChecked="True" Margin="20,0,0,0"/>
+                                            </StackPanel>
                                         </Grid>
                                     </GroupBox>
-                                    <GroupBox Header="VT惯导" Width="256" Height="120" Margin="0,0,0,0">
+
+                                    <GroupBox Header="VT惯导" Width="256" Height="150" Margin="0,0,0,0">
                                         <Grid>
-                                            <RadioButton x:Name="config_rb_instype_by2" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="北云" HorizontalAlignment="Left" Width="50" Margin="20,0,0,0" VerticalAlignment="Top" />
-                                            <RadioButton x:Name="config_rb_instype_rt2" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="RT" HorizontalAlignment="Left" Width="50" Margin="90,0,0,0" VerticalAlignment="Top" />
-                                            <RadioButton x:Name="config_rb_instype_shibo2" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="shibo" HorizontalAlignment="Left" Width="60" Margin="165,0,0,0" VerticalAlignment="Top" />
+                                            <RadioButton x:Name="config_rb_instype_by2" GroupName="VT_INS" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="北云" HorizontalAlignment="Left" Width="50" Margin="20,0,0,0" VerticalAlignment="Top" />
+                                            <RadioButton x:Name="config_rb_instype_rt2" GroupName="VT_INS" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="RT" HorizontalAlignment="Left" Width="50" Margin="90,0,0,0" VerticalAlignment="Top" />
+                                            <RadioButton x:Name="config_rb_instype_shibo2" GroupName="VT_INS" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="shibo" HorizontalAlignment="Left" Width="60" Margin="165,0,0,0" VerticalAlignment="Top" />
                                             <TextBox x:Name ="config_ins_ip_textbox2" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="IP" Width="125" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,40,0,0"/>
                                             <TextBox x:Name ="config_ins_port_textbox2" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="PORT" Width="80" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="140,40,0,0"/>
+
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="20,85,0,0" VerticalAlignment="Top">
+                                                <StackPanel.Style>
+                                                    <Style TargetType="StackPanel">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsChecked, ElementName=config_rb_instype_by2}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </StackPanel.Style>
+                                                <RadioButton x:Name="config_rb_by_unicast2" GroupName="VT_MODE" Content="单播" />
+                                                <RadioButton x:Name="config_rb_by_broadcast2" GroupName="VT_MODE" Content="广播" IsChecked="True" Margin="20,0,0,0"/>
+
+                                            </StackPanel>
                                         </Grid>
                                     </GroupBox>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left"  Margin="160,0,0,0" Grid.Row="3">
-                                    <StackPanel Orientation="Vertical" Width="300" Margin="20,0,0,0">
-                                        <TextBox x:Name ="config_smd_savedays_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="SMD保存天数" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,40,0,0"/>
-                                        <TextBox x:Name="config_log_savedays_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="LOG保存天数" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
-                                        <TextBox x:Name="config_data_can_device_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="数据解算CAN接口" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
-                                        <TextBox x:Name="config_daq_can_device_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="数采输入CAN接口" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
-                                        <TextBox x:Name="config_headtraker_textbox" ToolTip="0表示从惯导读数据，1表示从平板接收数据" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="HeadTraker" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0" >
 
-                                        </TextBox>
-                                        <TextBox x:Name="config_save_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Save_Mode" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="160,0,0,0" Grid.Row="3">
+                                    <GroupBox Grid.Row="1" Header="真值输出" hc:TitleElement.TitlePlacement="Top" Margin="20,0,0,0" Width="807">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBox x:Name="config_data_can_device_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="真值输出CAN接口" Width="160" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="5,0,0,0"/>
+
+                                            <TextBox x:Name="config_data_can_baud_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="CAN速率" Width="160" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                                            <TextBlock Text="真值来源" ToolTip="选择平板表示直接转发平板真值，选择域控表示由域控计算相对数据真值" Style="{StaticResource TextBlockBoldBaseStyle}" hc:InfoElement.TitlePlacement="Left"  HorizontalAlignment="Left" Margin="50,0,0,0" VerticalAlignment="Center"/>
+                                            <RadioButton x:Name="config_rb_robot" GroupName="DBC" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="域控" HorizontalAlignment="Left" Width="50" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                            <RadioButton x:Name="config_rb_ufo" GroupName="DBC" Background="{DynamicResource SecondaryRegionBrush}" Style="{StaticResource RadioButtonIcon}" Content="平板" HorizontalAlignment="Left" Width="50"  VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                        </StackPanel>
+                                    </GroupBox>
+
+                                </StackPanel>
+
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left"  Margin="160,0,0,0" Grid.Row="4">
+                                    <StackPanel Orientation="Vertical" Width="300" Margin="20,0,0,0">
+                                        <TextBox x:Name ="config_smd_savedays_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="SMD保存天数" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
+                                        <TextBox x:Name="config_log_savedays_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="LOG保存天数" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
+                                        <TextBox x:Name="config_daq_can_device_textbox" ToolTip="数采设备连接的CAN口" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="数采输入CAN接口" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
+
+                                        <TextBox x:Name="config_headtraker_textbox" ToolTip="0表示从惯导读数据，1表示从平板接收数据" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="SPT数据来源" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0" />
 
                                     </StackPanel>
                                     <StackPanel Orientation="Vertical" Width="500">
-                                        <TextBox x:Name ="config_smd_savepath_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="SMD保存路径" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,40,0,0"/>
+                                        <TextBox x:Name ="config_smd_savepath_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="SMD保存路径" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
                                         <TextBox x:Name ="config_log_savepath_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="LOG保存路径" Width="400" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
-                                        <TextBox x:Name="config_data_can_baud_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="数据结算CAN速率" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
                                         <TextBox x:Name="config_daq_can_baud_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="数采输入CAN速率" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
-                                        <TextBox x:Name="config_dbc_version_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="DBCVersion" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
+                                        <TextBox x:Name="config_save_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Save_Mode" Width="160" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5,10,0,0"/>
+
                                     </StackPanel>
                                 </StackPanel>
 
@@ -168,6 +236,16 @@
                                             </LinearGradientBrush>
                                         </Button.Background>
                                     </Button>
+                                    <Button x:Name ="Calculate_COG_Button" Content="航向校准" Style="{StaticResource ButtonPrimary}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0" Click="Calculate_COG_Button_Click" >
+                                        <Button.Background>
+                                            <LinearGradientBrush EndPoint="1,0">
+                                                <GradientStop Color="#FF326CF3"/>
+                                                <GradientStop Color="SkyBlue" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Button.Background>
+                                    </Button>
+                                    <ProgressBar x:Name="COG_ProcessBar"  HorizontalAlignment="Left" Style="{StaticResource ProgressBarBaseStyle}" Height="20" Margin="20,0,0,0" VerticalAlignment="Center" Width="100"/>
+                                    <TextBox x:Name="cog_estimated_textbox" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="COG"  HorizontalAlignment="Left" VerticalAlignment="Center" Margin="20,0,0,0" Width="80"/>
 
                                 </StackPanel>
                                 <GroupBox Grid.Row="1" Header="横向控制" hc:TitleElement.TitlePlacement="Left" >
@@ -206,7 +284,7 @@
                                                         <TextBox x:Name="cfg_heading_compen" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="航向补偿"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
                                                         <TextBox x:Name="cfg_rf_10" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="右转10"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
                                                         <TextBox x:Name="cfg_rf_20" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="右转20"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                        <TextBox x:Name="cfg_reserve" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="预瞄点"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                        <TextBox x:Name="cfg_reserve" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="预留"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
                                                         <TextBox x:Name="cfg_speed_limit" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="转速限幅"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
 
                                                     </StackPanel>
@@ -266,14 +344,14 @@
                                                                 <TextBox x:Name="cfg_low_kp" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Low_Kp"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
                                                                 <TextBox x:Name="cfg_low_ki" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Low_Ki"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
                                                                 <TextBox x:Name="cfg_low_kd" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Low_Kd"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                                <TextBox x:Name="cfg_deacceleration_limit" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="加速度限幅"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_acceleration_limit" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="加速度限幅"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
 
                                                             </StackPanel>
                                                             <StackPanel Orientation="Vertical" Grid.Column="1">
                                                                 <TextBox x:Name="cfg_mid_kp" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Mid_Kp"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
                                                                 <TextBox x:Name="cfg_mid_ki" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Mid_Ki"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
                                                                 <TextBox x:Name="cfg_mid_kd" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="Mid_Kd"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
-                                                                <TextBox x:Name="cfg_acceleration_limit" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="减速度限幅"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
+                                                                <TextBox x:Name="cfg_decceleration_limit" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="减速度限幅"  HorizontalAlignment="Left" Margin="0,10,0,0" Width="110"/>
 
                                                             </StackPanel>
                                                             <StackPanel Orientation="Vertical" Grid.Column="2">
@@ -332,7 +410,7 @@
 
                                                 </StackPanel>
                                             </Grid>
-                                            
+
                                         </GroupBox>
                                     </Grid>
                                 </GroupBox>
@@ -381,9 +459,9 @@
             <TabItem Header="数据">
                 <Grid ShowGridLines="True">
                     <Grid.RowDefinitions>
-                        <RowDefinition ></RowDefinition>
-                        <RowDefinition ></RowDefinition>
-                        <RowDefinition ></RowDefinition>
+                        <RowDefinition Height="200"></RowDefinition>
+                        <RowDefinition Height="200"></RowDefinition>
+                        <RowDefinition Height="200"></RowDefinition>
                         <RowDefinition ></RowDefinition>
                     </Grid.RowDefinitions>
                     <GroupBox Header="VUT"  Margin="0,0,0,0" Grid.Row="0">
@@ -407,7 +485,15 @@
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="0" Margin="0,0,0,0">
                                     <TextBlock Text="INS状态" VerticalAlignment="Center" Margin="0,0,0,0"/>
                                     <ProgressBar Margin ="10" Style="{DynamicResource ProgressBarFlat}" Width="50" Height="15" Value="10" ></ProgressBar>
+                                    <TextBlock x:Name="data_vut_insStatus" Text="" VerticalAlignment="Center" Margin="5,0,0,0"/> 
                                 </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="1" Margin="0,0,0,0">
+                                    <TextBox x:Name="data_vut_insX"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="INS_X" Width="130"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="2" Margin="0,0,0,0">
+                                    <TextBox x:Name="data_vut_yaw"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="航向角" Width="130"/>
+                                </StackPanel>
+
                             </Grid>
                             <Grid ShowGridLines="True" Grid.Column="1">
                                 <Grid.RowDefinitions>
@@ -416,9 +502,16 @@
                                     <RowDefinition></RowDefinition>
                                     <RowDefinition></RowDefinition>
                                 </Grid.RowDefinitions>
-                                <StackPanel Orientation="Horizontal" Grid.Row="0">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="0" Margin="0,0,0,0">
                                     <TextBlock Text="差分状态" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                     <ProgressBar Margin ="10" Style="{DynamicResource ProgressBarFlat}" Width="50" Height="15" Value="10" ></ProgressBar>
+                                    <TextBlock x:Name="data_vut_posType" Text="" VerticalAlignment="Center" Margin="5,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="1" Margin="0,0,0,0">
+                                    <TextBox x:Name="data_vut_insY"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="INS_Y" Width="130"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="2" Margin="0,0,0,0">
+                                    <TextBox x:Name="data_vut_utc"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="UTC" Width="150"/>
                                 </StackPanel>
                             </Grid>
                             <Grid ShowGridLines="True" Grid.Column="2">
@@ -428,9 +521,8 @@
                                     <RowDefinition></RowDefinition>
                                     <RowDefinition></RowDefinition>
                                 </Grid.RowDefinitions>
-
-                                <TextBox x:Name="data_vut_longitude"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="经度" Width="130"/>
-
+                                <TextBox x:Name="data_vut_longitude"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="经度" Grid.Row="0" Width="130"/>
+                                <TextBox x:Name="data_vut_forward_velocity"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="前向速度" Grid.Row="1" Width="130"/>
                             </Grid>
                             <Grid ShowGridLines="True" Grid.Column="3">
                                 <Grid.RowDefinitions>
@@ -440,7 +532,8 @@
                                     <RowDefinition></RowDefinition>
                                 </Grid.RowDefinitions>
 
-                                <TextBox  x:Name="data_vut_latitude" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="纬度" Width="130"/>
+                                <TextBox  x:Name="data_vut_latitude" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="纬度" Grid.Row="0" Width="130"/>
+                                <TextBox x:Name="data_vut_lateral_velocity"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="横向速度" Grid.Row="1" Width="130"/>
 
                             </Grid>
                             <Grid ShowGridLines="True" Grid.Column="4">
@@ -451,7 +544,8 @@
                                     <RowDefinition></RowDefinition>
                                 </Grid.RowDefinitions>
 
-                                <TextBox x:Name="data_vut_azimuth" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="方位角" Width="130"/>
+                                <TextBox x:Name="data_vut_azimuth" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="方位角" Grid.Row="0" Width="130"/>
+                                <TextBox x:Name="data_vut_forward_acc"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="前向加速度" Grid.Row="1" Width="130"/>
 
                             </Grid>
                             <Grid ShowGridLines="True" Grid.Column="5">
@@ -461,11 +555,103 @@
                                     <RowDefinition></RowDefinition>
                                     <RowDefinition></RowDefinition>
                                 </Grid.RowDefinitions>
-                                <TextBox x:Name="data_vut_velocity" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="速度" Width="130"/>
+                                <TextBox x:Name="data_vut_velocity" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="速度" Grid.Row="0" Width="130"/>
+                                <TextBox x:Name="data_vut_lateral_acc" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="横向加速度" Grid.Row="1" Width="130"/>
+
                             </Grid>
                         </Grid>
                     </GroupBox>
-                    <GroupBox Header="SPT"  Margin="0,0,0,0" Grid.Row="1">
+                    <GroupBox Header="SPT"  Margin="0,20,0,0" Grid.Row="1">
+                        <Grid ShowGridLines="True">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition></ColumnDefinition>
+                                <ColumnDefinition></ColumnDefinition>
+                                <ColumnDefinition></ColumnDefinition>
+                                <ColumnDefinition></ColumnDefinition>
+                                <ColumnDefinition></ColumnDefinition>
+                                <ColumnDefinition></ColumnDefinition>
+                            </Grid.ColumnDefinitions>
+
+                            <Grid ShowGridLines="True" Grid.Column="0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                </Grid.RowDefinitions>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="0" Margin="0,0,0,0">
+                                    <TextBlock Text="INS状态" VerticalAlignment="Center" Margin="0,0,0,0"/>
+                                    <ProgressBar Margin ="10" Style="{DynamicResource ProgressBarFlat}" Width="50" Height="15" Value="10" ></ProgressBar>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="1" Margin="0,0,0,0">
+                                    <TextBox x:Name="data_spt_insX"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="INS_X" Width="130"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ShowGridLines="True" Grid.Column="1">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                </Grid.RowDefinitions>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="0" Margin="0,0,0,0">
+                                    <TextBlock Text="差分状态" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                    <ProgressBar Margin ="10" Style="{DynamicResource ProgressBarFlat}" Width="50" Height="15" Value="10" ></ProgressBar>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="1" Margin="0,0,0,0">
+                                    <TextBox x:Name="data_spt_insY"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="INS_Y" Width="130"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid ShowGridLines="True" Grid.Column="2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                </Grid.RowDefinitions>
+
+                                <TextBox x:Name="data_spt_longitude1"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="经度" Grid.Row="0" Width="130"/>
+                                <TextBox x:Name="data_spt_forward_velocity"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="前向速度" Grid.Row="1" Width="130"/>
+
+                            </Grid>
+                            <Grid ShowGridLines="True" Grid.Column="3">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                </Grid.RowDefinitions>
+
+                                <TextBox x:Name="data_spt_latitude1"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="纬度" Grid.Row="0" Width="130"/>
+                                <TextBox x:Name="data_spt_lateral_velocity"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="横向速度" Grid.Row="1" Width="130"/>
+
+                            </Grid>
+                            <Grid ShowGridLines="True" Grid.Column="4">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                </Grid.RowDefinitions>
+
+                                <TextBox x:Name="data_spt_azimuth1" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="方位角" Grid.Row="0" Width="130"/>
+                                <TextBox x:Name="data_spt_forward_acc"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="前向加速度" Grid.Row="1" Width="130"/>
+
+                            </Grid>
+                            <Grid ShowGridLines="True" Grid.Column="5">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                    <RowDefinition></RowDefinition>
+                                </Grid.RowDefinitions>
+                                <TextBox x:Name="data_spt_velocity1" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="速度" Grid.Row="0" Width="130"/>
+                                <TextBox x:Name="data_spt_lateral_acc"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="横向加速度" Grid.Row="1" Width="130"/>
+
+                            </Grid>
+                        </Grid>
+                    </GroupBox>
+                    <GroupBox Header="VT"  Margin="0,20,0,0" Grid.Row="2">
                         <Grid ShowGridLines="True">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition></ColumnDefinition>
@@ -495,86 +681,7 @@
                                     <RowDefinition></RowDefinition>
                                     <RowDefinition></RowDefinition>
                                 </Grid.RowDefinitions>
-                                <StackPanel Orientation="Horizontal" Grid.Row="0">
-                                    <TextBlock Text="差分状态" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                                    <ProgressBar Margin ="10" Style="{DynamicResource ProgressBarFlat}" Width="50" Height="15" Value="10" ></ProgressBar>
-                                </StackPanel>
-                            </Grid>
-                            <Grid ShowGridLines="True" Grid.Column="2">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                </Grid.RowDefinitions>
-
-                                <TextBox x:Name="data_spt_longitude1"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="经度" Width="130"/>
-
-                            </Grid>
-                            <Grid ShowGridLines="True" Grid.Column="3">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                </Grid.RowDefinitions>
-
-                                <TextBox x:Name="data_spt_latitude1"  Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="纬度" Width="130"/>
-
-                            </Grid>
-                            <Grid ShowGridLines="True" Grid.Column="4">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                </Grid.RowDefinitions>
-
-                                <TextBox x:Name="data_spt_azimuth1" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="方位角" Width="130"/>
-
-                            </Grid>
-                            <Grid ShowGridLines="True" Grid.Column="5">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                </Grid.RowDefinitions>
-                                <TextBox x:Name="data_spt_velocity1" Style="{StaticResource TextBoxExtend}" hc:InfoElement.TitlePlacement="Left"  hc:InfoElement.Title="速度" Width="130"/>
-                            </Grid>
-                        </Grid>
-                    </GroupBox>
-                    <GroupBox Header="VT"  Margin="0,0,0,0" Grid.Row="2">
-                        <Grid ShowGridLines="True">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition></ColumnDefinition>
-                                <ColumnDefinition></ColumnDefinition>
-                                <ColumnDefinition></ColumnDefinition>
-                                <ColumnDefinition></ColumnDefinition>
-                                <ColumnDefinition></ColumnDefinition>
-                                <ColumnDefinition></ColumnDefinition>
-                            </Grid.ColumnDefinitions>
-
-                            <Grid ShowGridLines="True" Grid.Column="0">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                </Grid.RowDefinitions>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Grid.Row="0" Margin="0,0,0,0">
-                                    <TextBlock Text="INS状态" VerticalAlignment="Center" Margin="0,0,0,0"/>
-                                    <ProgressBar Margin ="10" Style="{DynamicResource ProgressBarFlat}" Width="50" Height="15" Value="10" ></ProgressBar>
-                                </StackPanel>
-                            </Grid>
-                            <Grid ShowGridLines="True" Grid.Column="1">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                    <RowDefinition></RowDefinition>
-                                </Grid.RowDefinitions>
-                                <StackPanel Orientation="Horizontal" Grid.Row="0">
                                     <TextBlock Text="差分状态" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                     <ProgressBar Margin ="10" Style="{DynamicResource ProgressBarFlat}" Width="50" Height="15" Value="10" ></ProgressBar>
                                 </StackPanel>
@@ -670,8 +777,16 @@
 
                 </Grid>
             </TabItem>
-            <TabItem Header="信息"/>
-
+            <TabItem Header="信息">
+                <Grid>
+                    <gmap:GMapControl x:Name="OfflineMap" Loaded="OfflineMap_Loaded" MouseWheelZoomType="MousePositionAndCenter" Margin="0"/>
+                </Grid>
+            </TabItem>
+            <TabItem Header="轨迹图">
+                <Grid>
+                    
+                </Grid>
+            </TabItem>
 
         </TabControl>
     </Grid>

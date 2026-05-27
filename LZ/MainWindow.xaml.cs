@@ -17,19 +17,135 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
+using GMap.NET;
+using GMap.NET.MapProviders;
+using GMap.NET.WindowsPresentation;
+
+using Microsoft.Data.Sqlite;
+using GMap.NET.Projections;
+
 namespace LZ
 {
+    public class MBTilesMapProvider : GMapProvider
+    {
+        private readonly string _dbPath;
+        private readonly Guid _id = Guid.NewGuid();
+
+
+        // 构造函数传入 mbtiles 文件的完整路径
+        public MBTilesMapProvider(string dbPath)
+        {
+            _dbPath = dbPath;
+        }
+
+        public override Guid Id => _id;
+        public override string Name => "MBTilesOfflineMap";
+        public override PureProjection Projection => MercatorProjection.Instance;
+        public override GMapProvider[] Overlays => new GMapProvider[] { this };
+
+        // 核心方法：拦截 GMap 的瓦片请求，改为去 SQLite 数据库里查图片
+        //public override PureImage GetTileImage(GPoint pos, int zoom)
+        //{
+        //    try
+        //    {
+        //        if (!File.Exists(_dbPath)) return null;
+
+        //        // MBTiles 使用的是 TMS 坐标系，Y轴与标准瓦片图上下颠倒，需要翻转
+        //        long tmsY = (1 << zoom) - 1 - pos.Y;
+
+        //        using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
+        //        {
+        //            conn.Open();
+        //            using (var cmd = conn.CreateCommand())
+        //            {
+        //                // 在 tiles 表中查询对应层级和坐标的图片数据
+        //                cmd.CommandText = "SELECT tile_data FROM tiles WHERE zoom_level = @z AND tile_column = @x AND tile_row = @y";
+        //                cmd.Parameters.AddWithValue("@z", zoom);
+        //                cmd.Parameters.AddWithValue("@x", pos.X);
+        //                cmd.Parameters.AddWithValue("@y", tmsY);
+
+        //                var result = cmd.ExecuteScalar();
+        //                if (result != null && result != DBNull.Value && result is byte[] data)
+        //                {
+        //                    // 使用 GMap 内置的字节转图片方法返回
+        //                    return GetTileImageFromArray(data);
+        //                }
+        //            }
+        //        }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        System.Diagnostics.Debug.WriteLine($"读取 MBTiles 失败: {ex.Message}");
+        //    }
+        //    return null;
+        //}
+        public override PureImage GetTileImage(GPoint pos, int zoom)
+        {
+            try
+            {
+                // 1. 检查文件到底在不在
+                if (!File.Exists(_dbPath))
+                {
+                    // 如果文件不在，弹窗警告（只会弹一次以防卡死）
+                    System.Windows.MessageBox.Show($"严重错误：找不到离线地图文件！\n预期路径：{_dbPath}\n请检查“复制到输出目录”属性是否设置！", "文件缺失", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                    return null;
+                }
+
+                // 标准 MBTiles 翻转 Y 轴
+                long tmsY = (1 << zoom) - 1 - pos.Y;
+
+                using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
+                {
+                    conn.Open();
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = "SELECT tile_data FROM tiles WHERE zoom_level = @z AND tile_column = @x AND tile_row = @y";
+                        cmd.Parameters.AddWithValue("@z", zoom);
+                        cmd.Parameters.AddWithValue("@x", pos.X);
+                        cmd.Parameters.AddWithValue("@y", tmsY);
+
+                        var result = cmd.ExecuteScalar();
+
+                        // 2. 如果查到了数据，成功返回
+                        if (result != null && result != DBNull.Value && result is byte[] data)
+                        {
+                            return GetTileImageFromArray(data);
+                        }
+                        else
+                        {
+                            // 3. 如果没查到数据，尝试用不翻转的 Y 轴（XYZ模式）再查一次！
+                            cmd.Parameters["@y"].Value = pos.Y;
+                            var fallbackResult = cmd.ExecuteScalar();
+                            if (fallbackResult != null && fallbackResult != DBNull.Value && fallbackResult is byte[] fallbackData)
+                            {
+                                return GetTileImageFromArray(fallbackData);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"读取 SQLite 数据库异常：{ex.Message}", "数据库错误");
+            }
+            return null;
+        }
+    }
+
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window
     {
+        private GMapMarker carMarker;
+
         private TcpClient client;
         private UdpClient udpServer;
         private DispatcherTimer timer;
@@ -67,6 +183,8 @@ namespace LZ
         OriginInfo origin = new OriginInfo();
         private CoordinateTransformationFactory _ctf;
         private ICoordinateTransformation _wgs84ToUtm;
+
+        COGStatus cOGStatus = new COGStatus();
 
         // 原始图片参数（line.png：1904×518）
         private const double OriginalImgWidth = 1904;  // 原始图片宽度（像素）
@@ -129,7 +247,7 @@ namespace LZ
             Driver.RenderTransformOrigin = new Point(0, 0);
 
             // 监听鼠标滚轮（在窗口预览阶段捕获，便于在 canvas 或 vehicle 上都能触发）
-            this.PreviewMouseWheel += MainWindow_PreviewMouseWheel;
+            //this.PreviewMouseWheel += MainWindow_PreviewMouseWheel;
 
             timer = new DispatcherTimer(); // 设置定时器间隔为1000毫秒（1秒）
             timer.Interval = TimeSpan.FromSeconds(0.05);
@@ -285,7 +403,7 @@ namespace LZ
             }
         }
 
-        // 接收服务器数据
+        // 接收TCP服务器数据
         private void receiveData()
         {
             byte[] buffer = new byte[1024];
@@ -300,6 +418,11 @@ namespace LZ
                     {
                         // 连接已关闭
                         AppendLog("服务器已断开连接");
+                        Dispatcher.Invoke(() =>
+                        {
+                            Restart_Button.IsEnabled = false;
+                            Update_Button.IsEnabled = false;
+                        });
                         break;
                     }
                     if (buffer[0] == 0xAA && buffer[1] == 0x55)
@@ -322,7 +445,10 @@ namespace LZ
                                     debugConfig = ByteArrayToDebugConfig(msg);
                                     AppendLog("配置文件接收成功!\r\n");
                                     break;
-
+                                case 0x93:
+                                    sDebugControlParam = ByteArrayToDebugControlParam(msg);
+                                    AppendLog("控制参数接收成功!\r\n");
+                                    break;
                                 case 0x95:
                                     AppendLog($"pathfile{Encoding.UTF8.GetString(msg).TrimEnd('\0')}");
                                     Refresh_Track(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
@@ -339,11 +465,12 @@ namespace LZ
                                             (debugConfig.vut_ins_ip.SequenceEqual(debugConfig.vt_ins_ip) && debugConfig.vut_ins_port == debugConfig.vt_ins_port) ||
                                             (debugConfig.spt_ins_ip.SequenceEqual(debugConfig.vt_ins_ip) && debugConfig.spt_ins_port == debugConfig.vt_ins_port))
                                         {
-                                            MessageBox.Show("错误：多个惯导的IP地址和端口不能同时相同！请修改", "配置错误");
+                                            HandyControl.Controls.MessageBox.Show("错误：多个惯导的IP地址和端口不能同时相同！请修改", "配置错误");
                                         }
                                         else
                                         {
-                                            MessageBox.Show("配置文件读取成功!");
+                                            //MessageBox.Show("配置文件读取成功!");
+                                            HandyControl.Controls.MessageBox.Show("配置文件读取成功!");
                                         }
                                         
                                         UpdateConfigUI();
@@ -364,7 +491,23 @@ namespace LZ
                                     //Array.Copy(data, 12, msg, 0, length-4);
                                     if (sSendBack.ack == 1)
                                     {
-                                        MessageBox.Show("配置写入成功!", "配置写入");
+                                        //MessageBox.Show("配置写入成功!", "配置写入");
+                                        // 使用 Dispatcher 并在内部调用 HandyControl 的 MessageBox
+                                        Dispatcher.Invoke(() =>
+                                        {
+                                            // 传入 this 使弹窗在主界面中心显示，而不是屏幕中心
+                                            MessageBoxResult result = HandyControl.Controls.MessageBox.Show(
+                                                this,
+                                                "配置写入成功！是否立即重启？\n\n(选择“是”进行重启，选择“否”稍后处理)",
+                                                "配置写入",
+                                                MessageBoxButton.YesNo,
+                                                MessageBoxImage.Information);
+
+                                            if (result == MessageBoxResult.Yes)
+                                            {
+                                                Restart_Button_Click(null, null);
+                                            }
+                                        });
 
                                         AppendLog(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
                                     }
@@ -375,7 +518,24 @@ namespace LZ
                                     }
                                     //debugConfig = ByteArrayToDebugConfig(data);
                                     break;
+                                // 控制参数接收成功
                                 case 0x83:
+                                    sSendBack = BytesToStruct<SendBack>(msg, 0);
+                                    if (sSendBack.ack == 1)
+                                    {
+                                        
+                                        HandyControl.Controls.MessageBox.Show("控制参数读取成功!");
+
+                                        // 更新控制参数界面
+                                        UpdateControlUI();
+                                        //Dispatcher.Invoke(() => CustomMessageBox.Show("配置写入成功!"));
+                                    }
+                                    else
+                                    {
+                                        Dispatcher.Invoke(() => MessageBox.Show("控制参数读取失败!", "配置读取"));
+                                        AppendLog(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
+                                    }
+                                    //debugConfig = ByteArrayToDebugConfig(data);
                                     break;
                                 default:
                                     break;
@@ -462,6 +622,24 @@ namespace LZ
                                 Array.Copy(data, 8, msg, 0, length);
                                 AppendLog(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
                                 break;
+                            case 0x94:
+                                Array.Copy(data, 8, msg, 0, length);
+                                cOGStatus = BytesToStruct<COGStatus>(msg, 0);
+                                //AppendLog($"COG:{cOGStatus.sample_count}");
+                                updatecog();
+                                break;
+                            case 0x95:
+                                Array.Copy(data, 8, msg, 0, length);
+                                // UDP: msg 已经从 data 中拷贝
+                                if (TryParseLaneRelative(msg, out var laneRelUdp))
+                                {
+                                    HandleLaneRelativeData(laneRelUdp);
+                                }
+                                else
+                                {
+                                    AppendLog("接收到未知的 0x95 UDP 包（未能解析为车道数据）");
+                                }
+                                break;
 
                             default:
                                 break;
@@ -526,8 +704,9 @@ namespace LZ
             {
                 
 
-                string robot_type_str = System.Text.Encoding.ASCII.GetString(debugConfig.robot_type).TrimEnd('\0');
-                if (robot_type_str == "aid")
+                //string robot_type_str = System.Text.Encoding.ASCII.GetString(debugConfig.robot_type).TrimEnd('\0');
+                string robot_type_str = GetStringFromByteArray(debugConfig.robot_type);
+                if (robot_type_str == "aid" || robot_type_str == "lizhong")
                 {
                     AppendLog($"机器人类型: {robot_type_str}\r\n");
                     config_rb_type_lz.IsChecked = true;
@@ -536,15 +715,22 @@ namespace LZ
                 {
                     config_rb_type_siasun.IsChecked = true;
                 }
-                config_can_device_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.can_device_name).TrimEnd('\0');
+                //config_can_device_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.can_device_name).TrimEnd('\0');
+                config_can_device_textbox.Text = GetStringFromByteArray(debugConfig.can_device_name);
                 config_can_baud_textbox.Text = debugConfig.can_baud.ToString();
-                config_upper_ip_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.udp_server_ip).TrimEnd('\0');
+                //config_upper_ip_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.udp_server_ip).TrimEnd('\0');
+                config_upper_ip_textbox.Text = GetStringFromByteArray(debugConfig.udp_server_ip);
                 config_upper_port_textbox.Text = debugConfig.udp_server_port.ToString();
-                string ins_type = System.Text.Encoding.ASCII.GetString(debugConfig.ins_type).TrimEnd('\0');
+                //string ins_type = System.Text.Encoding.ASCII.GetString(debugConfig.ins_type).TrimEnd('\0');
+                //string agreement = System.Text.Encoding.ASCII.GetString(debugConfig.agreement).TrimEnd('\0'); // 取出协议类型
+                string ins_type = GetStringFromByteArray(debugConfig.ins_type);
+                string agreement = GetStringFromByteArray(debugConfig.agreement);
                 AppendLog($"InsType:{ins_type}\r\n");
                 if (ins_type == "bynav")
                 {
                     config_rb_instype_by.IsChecked = true;
+                    if (agreement == "udp") config_rb_by_unicast.IsChecked = true;
+                    else config_rb_by_broadcast.IsChecked = true;
                 }
                 else if (ins_type == "rt")
                 {
@@ -554,13 +740,19 @@ namespace LZ
                 {
                     config_rb_instype_shibo.IsChecked = true;
                 }
-                config_ins_ip_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.vut_ins_ip).TrimEnd('\0');
+                //config_ins_ip_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.vut_ins_ip).TrimEnd('\0');
+                config_ins_ip_textbox.Text = GetStringFromByteArray(debugConfig.vut_ins_ip);
                 config_ins_port_textbox.Text = debugConfig.vut_ins_port.ToString();
-                string spt_ins_type = System.Text.Encoding.ASCII.GetString(debugConfig.spt_ins_type).TrimEnd('\0');
-
+                //string spt_ins_type = System.Text.Encoding.ASCII.GetString(debugConfig.spt_ins_type).TrimEnd('\0');
+                //string spt_agreement = System.Text.Encoding.ASCII.GetString(debugConfig.spt_agreement).TrimEnd('\0'); // 取出协议类型
+                string spt_ins_type = GetStringFromByteArray(debugConfig.spt_ins_type);
+                string spt_agreement = GetStringFromByteArray(debugConfig.spt_agreement);
                 if (spt_ins_type == "bynav")
                 {
                     config_rb_instype_by1.IsChecked = true;
+                    if (spt_agreement == "udp") config_rb_by_unicast1.IsChecked = true;
+                    else config_rb_by_broadcast1.IsChecked = true;
+;
                 }
                 else if (ins_type == "rt")
                 {
@@ -570,13 +762,19 @@ namespace LZ
                 {
                     config_rb_instype_shibo1.IsChecked = true;
                 }
-                config_ins_ip_textbox1.Text = System.Text.Encoding.ASCII.GetString(debugConfig.spt_ins_ip).TrimEnd('\0');
+                //config_ins_ip_textbox1.Text = System.Text.Encoding.ASCII.GetString(debugConfig.spt_ins_ip).TrimEnd('\0');
+                config_ins_ip_textbox1.Text = GetStringFromByteArray(debugConfig.spt_ins_ip);
                 config_ins_port_textbox1.Text = debugConfig.spt_ins_port.ToString();
 
-                string vt_ins_type = System.Text.Encoding.ASCII.GetString(debugConfig.vt_ins_type).TrimEnd('\0');
+                //string vt_ins_type = System.Text.Encoding.ASCII.GetString(debugConfig.vt_ins_type).TrimEnd('\0');
+                //string vt_agreement = System.Text.Encoding.ASCII.GetString(debugConfig.vt_agreement).TrimEnd('\0'); // 取出协议类型
+                string vt_ins_type = GetStringFromByteArray(debugConfig.vt_ins_type);
+                string vt_agreement = GetStringFromByteArray(debugConfig.vt_agreement);
                 if (vt_ins_type == "bynav")
                 {
                     config_rb_instype_by2.IsChecked = true;
+                    if (vt_agreement == "udp") config_rb_by_unicast2.IsChecked = true;
+                    else config_rb_by_broadcast2.IsChecked = true;
                 }
                 else if (ins_type == "rt")
                 {
@@ -586,23 +784,36 @@ namespace LZ
                 {
                     config_rb_instype_shibo2.IsChecked = true;
                 }
-                config_ins_ip_textbox2.Text = System.Text.Encoding.ASCII.GetString(debugConfig.vt_ins_ip).TrimEnd('\0');
+                //config_ins_ip_textbox2.Text = System.Text.Encoding.ASCII.GetString(debugConfig.vt_ins_ip).TrimEnd('\0');
+                config_ins_ip_textbox2.Text = GetStringFromByteArray(debugConfig.vt_ins_ip);
                 config_ins_port_textbox2.Text = debugConfig.vt_ins_port.ToString();
 
                 config_smd_savedays_textbox.Text = debugConfig.smd_save_days.ToString();
-                config_smd_savepath_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.smd_file_save_path).TrimEnd('\0');
+                //config_smd_savepath_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.smd_file_save_path).TrimEnd('\0');
+                config_smd_savepath_textbox.Text = GetStringFromByteArray(debugConfig.smd_file_save_path);
 
                 config_log_savedays_textbox.Text = debugConfig.log_save_days.ToString();
-                config_log_savepath_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.log_file_save_path).TrimEnd('\0');
+                //config_log_savepath_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.log_file_save_path).TrimEnd('\0');
+                config_log_savepath_textbox.Text = GetStringFromByteArray(debugConfig.log_file_save_path);
 
-                config_data_can_device_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.data_can_device_name).TrimEnd('\0');
+                //config_data_can_device_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.data_can_device_name).TrimEnd('\0');
+                config_data_can_device_textbox.Text = GetStringFromByteArray(debugConfig.data_can_device_name);
                 config_data_can_baud_textbox.Text = debugConfig.data_can_baud.ToString();
 
-                config_daq_can_device_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.daq_can_device_name).TrimEnd('\0');
+                //config_daq_can_device_textbox.Text = System.Text.Encoding.ASCII.GetString(debugConfig.daq_can_device_name).TrimEnd('\0');
+                config_daq_can_device_textbox.Text = GetStringFromByteArray(debugConfig.daq_can_device_name);
                 config_daq_can_baud_textbox.Text = debugConfig.daq_can_baud.ToString();
 
                 config_headtraker_textbox.Text = debugConfig.headtrakertype.ToString();
-                config_dbc_version_textbox.Text = debugConfig.dbc_version.ToString();
+                //config_dbc_version_textbox.Text = debugConfig.dbc_version.ToString();
+                if (debugConfig.dbc_version == 2)
+                {
+                    config_rb_robot.IsChecked = true;
+                }
+                else
+                {
+                    config_rb_ufo.IsChecked = true;
+                }
 
                 config_save_textbox.Text = debugConfig.save_mode.ToString();
 
@@ -613,6 +824,74 @@ namespace LZ
             
 
         }
+
+        private void UpdateControlUI()
+        {
+
+            Dispatcher.Invoke(() =>
+            {
+
+
+                //string robot_type_str = System.Text.Encoding.ASCII.GetString(debugConfig.robot_type).TrimEnd('\0');
+                cfg_frobase.Text = sDebugControlParam.FrontBase.ToString("F2");
+                cfg_curve_kp1.Text = sDebugControlParam.CurveKp1.ToString("F2");
+                cfg_curve_kp2.Text = sDebugControlParam.CurveKp2.ToString("F2");
+                cfg_curve_kp3.Text = sDebugControlParam.CurveKp3.ToString("F2");
+                cfg_ccrh_stanley.Text = sDebugControlParam.ccrh_stanley.ToString("F2");
+                cfg_elk_flag.Text = sDebugControlParam.ElkFlag.ToString();
+
+                cfg_preview_point.Text = sDebugControlParam.Preview1.ToString("F2");
+                cfg_lf_10.Text = sDebugControlParam.lf10_stanley.ToString("F2");
+                cfg_lf_20.Text = sDebugControlParam.lf20_stanley.ToString("F2");
+                cfg_lf_30.Text = sDebugControlParam.lf30_stanley.ToString("F2");
+                cfg_steer_limit.Text = sDebugControlParam.steer_angle_limit.ToString("F2");
+
+                cfg_heading_compen.Text = sDebugControlParam.Heading.ToString("F2");
+                cfg_rf_10.Text = sDebugControlParam.rf10_stanley.ToString("F2");
+                cfg_rf_20.Text = sDebugControlParam.rf20_stanley.ToString("F2");
+                cfg_speed_limit.Text = sDebugControlParam.steer_speed_limit.ToString("F2");
+
+
+                cfg_low_kp.Text = sDebugControlParam.Low_P.ToString("F2");
+                cfg_low_ki.Text = sDebugControlParam.Low_I.ToString("F2");
+                cfg_low_kd.Text = sDebugControlParam.Low_D.ToString("F2");
+                cfg_acceleration_limit.Text = sDebugControlParam.Acc_Max.ToString("F2");
+                
+                cfg_mid_kp.Text = sDebugControlParam.Mid_P.ToString("F2");
+                cfg_mid_ki.Text = sDebugControlParam.Mid_I.ToString("F2");
+                cfg_mid_kd.Text = sDebugControlParam.Mid_D.ToString("F2");
+                cfg_decceleration_limit.Text = sDebugControlParam.Acc_Min.ToString("F2");
+
+                cfg_high_kp.Text = sDebugControlParam.Hig_P.ToString("F2");
+                cfg_high_ki.Text = sDebugControlParam.Hig_I.ToString("F2");
+                cfg_high_kd.Text = sDebugControlParam.Hig_D.ToString("F2");
+
+
+                cfg_ten.Text = sDebugControlParam.ten.ToString("F2");
+                cfg_twenty.Text = sDebugControlParam.twenty.ToString("F2");
+                cfg_thirty.Text = sDebugControlParam.thirty.ToString("F2");
+                cfg_forty.Text = sDebugControlParam.forty.ToString("F2");
+                cfg_fifty.Text = sDebugControlParam.fifty.ToString("F2");
+                cfg_sixty.Text = sDebugControlParam.sixty.ToString("F2");
+                cfg_senventy.Text = sDebugControlParam.seventy.ToString("F2");
+                cfg_eighty.Text = sDebugControlParam.eighty.ToString("F2");
+                cfg_ninety.Text = sDebugControlParam.ninety.ToString("F2");
+                cfg_hundred.Text = sDebugControlParam.hundred.ToString("F2");
+                cfg_hundred_ten.Text = sDebugControlParam.hundred_ten.ToString("F2");
+                cfg_hundred_twenty.Text = sDebugControlParam.hundred_twenty.ToString("F2");
+
+                cfg_Xactual.Text = sDebugControlParam.XActual.ToString("F2");
+                cfg_SRtorque.Text = sDebugControlParam.SRTortue.ToString("F2");
+
+                //}));
+            });
+
+
+
+        }
+
+
+
         // 实时数据显示
         private void updatemsg()
         {
@@ -624,6 +903,16 @@ namespace LZ
                 data_vut_longitude.Text = robotData_Part2.VUTMP_Longitude.ToString("F8");
                 data_vut_azimuth.Text = robotData_Part2.VUTMP_Azimuth.ToString("F2");
                 data_vut_velocity.Text = robotData_Part2.VUTMP_Vertical_velocity.ToString("F2");
+                data_vut_forward_velocity.Text = robotData_Part2.VUTMP_Forward_velocity.ToString("F2");
+                data_vut_lateral_velocity.Text = robotData_Part2.VUTMP_Lateral_velocity.ToString("F2");
+                data_vut_forward_acc.Text = robotData_Part2.VUTMP_Forward_acceleration.ToString("F2");
+                data_vut_lateral_acc.Text = robotData_Part2.VUTMP_Lateral_acceleration.ToString("F2");
+                data_vut_insX.Text = robotData_Part2.VUTMP_INS_X.ToString("F2");
+                data_vut_insY.Text = robotData_Part2.VUTMP_INS_Y.ToString("F2");
+                data_vut_insStatus.Text = robotData_Part2.VUTMP_INS_Status.ToString("F2");
+                data_vut_posType.Text = robotData_Part2.VUTMP_RTK_Status.ToString("F2");
+                data_vut_yaw.Text = robotData_Part2.VUTMP_Yaw_angle.ToString("F2");
+                data_vut_utc.Text = robotData_Part1.Utc_time.ToString("F4");
                 //data_vut_actualx.Text = robotData_Part2.VUTMP_Actual_X.ToString("F2");
                 //data_vut_actualy.Text = robotData_Part2.VUTMP_Actual_Y.ToString("F2");
 
@@ -631,6 +920,12 @@ namespace LZ
                 data_spt_longitude1.Text = robotData_Part3.SPTMP_Longitude.ToString("F8");
                 data_spt_azimuth1.Text = robotData_Part3.SPTMP_Azimuth.ToString("F2");
                 data_spt_velocity1.Text = robotData_Part3.SPTMP_Vertical_velocity.ToString("F2");
+                data_spt_forward_velocity.Text = robotData_Part3.SPTMP_Forward_velocity.ToString("F2");
+                data_spt_lateral_velocity.Text = robotData_Part3.SPTMP_Lateral_velocity.ToString("F2");
+                data_spt_forward_acc.Text = robotData_Part3.SPTMP_Forward_acceleration.ToString("F2");
+                data_spt_lateral_acc.Text = robotData_Part3.SPTMP_Lateral_acceleration.ToString("F2");
+                data_spt_insX.Text = robotData_Part3.SPTMP_INS_X.ToString("F2");
+                data_spt_insY.Text = robotData_Part3.SPTMP_INS_Y.ToString("F2");
 
                 data_vt_latitude.Text = robotData_Part4.SubMP_Latitude.ToString("F8");
                 data_vt_longitude.Text = robotData_Part4.SubMP_Longitude.ToString("F8");
@@ -654,9 +949,34 @@ namespace LZ
                 {
                     UpdateA1OnCanvas();
                 }
+
+                // 更新离线地图上的车辆位置
+                if (carMarker != null && robotData_Part2.VUTMP_Latitude != 0 && robotData_Part2.VUTMP_Longitude != 0)
+                {
+                    carMarker.Position = new PointLatLng(robotData_Part2.VUTMP_Latitude, robotData_Part2.VUTMP_Longitude);
+
+                    // 可选：如果希望地图一直跟随车辆中心移动，可以取消下面这行的注释
+                    // OfflineMap.Position = carMarker.Position; 
+                }
             });
         }
 
+        private void updatecog()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if(cOGStatus.is_ins_ready == 1)
+                {
+                    AppendLog($"COG采样完成，样本数量: {cOGStatus.sample_count} 估计值: {cOGStatus.est_cog}\r\n");
+                    cog_estimated_textbox.Text = cOGStatus.est_cog.ToString("F2");
+                    COG_ProcessBar.Value = 100;
+                }
+                else
+                {
+                    COG_ProcessBar.Value = cOGStatus.sample_count / 30;
+                }
+            });
+        }
         private void close_connection()
         {
             _isConnected = false;
@@ -728,6 +1048,25 @@ namespace LZ
             {
                 Marshal.Copy(data, 0, ptr, size);
                 return (DebugConfig)Marshal.PtrToStructure(ptr, typeof(DebugConfig));
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(ptr);
+            }
+        }
+
+        private DebugControlParam ByteArrayToDebugControlParam(byte[] data)
+        {
+            int size = Marshal.SizeOf(typeof(DebugControlParam));
+            // AppendLog($"DebugConfigLength: {size}\r\n");
+            if (data.Length < size)
+                throw new ArgumentException("数据长度不足，无法转换为DebugControlParam结构体");
+
+            IntPtr ptr = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.Copy(data, 0, ptr, size);
+                return (DebugControlParam)Marshal.PtrToStructure(ptr, typeof(DebugControlParam));
             }
             finally
             {
@@ -875,7 +1214,7 @@ namespace LZ
                 AppendLog("TCP连接未建立，无法发送数据\r\n");
             }
         }
-
+        // 将界面数据发送给下位机
         private void Write_Control_Param_Button_Click(object sender, RoutedEventArgs e)
         {
 
@@ -896,7 +1235,7 @@ namespace LZ
         {
             if (config_rb_type_lz.IsChecked == true)
             {
-                debugConfig.robot_type = ConvertStringToFixedByteArray("aid", 8);
+                debugConfig.robot_type = ConvertStringToFixedByteArray("lizhong", 8);
                 //debugConfig.robot_type = Encoding.ASCII.GetBytes("aid");
             }
             else
@@ -913,7 +1252,7 @@ namespace LZ
             //debugConfig.local_ip2 = ConvertStringToFixedByteArray("192.168.1.210", 16);
 
             debugConfig.tcp_local_port = 5000;
-            debugConfig.tcp_local_port1 = 8201;
+            debugConfig.tcp_local_port1 = 8202;
 
             debugConfig.udp_server_ip = ConvertStringToFixedByteArray(config_upper_ip_textbox.Text, 16);
             debugConfig.udp_server_port = int.Parse(config_upper_port_textbox.Text);
@@ -925,19 +1264,22 @@ namespace LZ
             {
 
                 debugConfig.ins_type = ConvertStringToFixedByteArray("bynav", 8);
+                debugConfig.agreement = config_rb_by_broadcast.IsChecked == true ? ConvertStringToFixedByteArray("tcp", 8) : ConvertStringToFixedByteArray("udp", 8);
             }
             else if (config_rb_instype_rt.IsChecked == true)
             {
                 debugConfig.ins_type = ConvertStringToFixedByteArray("rt", 8);
+                debugConfig.agreement = ConvertStringToFixedByteArray("udp", 8);
             }
             else
             {
                 debugConfig.ins_type = ConvertStringToFixedByteArray("shibo", 8);
+                debugConfig.agreement = ConvertStringToFixedByteArray("udp", 8);
             }
 
             debugConfig.vut_ins_ip = ConvertStringToFixedByteArray(config_ins_ip_textbox.Text, 16);
             debugConfig.vut_ins_port = int.Parse(config_ins_port_textbox.Text);
-            debugConfig.agreement = ConvertStringToFixedByteArray("udp", 8);
+            //debugConfig.agreement = ConvertStringToFixedByteArray("udp", 8);
             debugConfig.message_id = 0;
             debugConfig.region = 8;
             debugConfig.sys_time_enable = 0;
@@ -946,18 +1288,21 @@ namespace LZ
             if (config_rb_instype_by1.IsChecked == true)
             {
                 debugConfig.spt_ins_type = ConvertStringToFixedByteArray("bynav", 8);
+                debugConfig.spt_agreement = config_rb_by_broadcast1.IsChecked == true ? ConvertStringToFixedByteArray("tcp", 8) : ConvertStringToFixedByteArray("udp", 8);
             }
             else if (config_rb_instype_rt1.IsChecked == true)
             {
                 debugConfig.spt_ins_type = ConvertStringToFixedByteArray("rt", 8);
+                debugConfig.spt_agreement = ConvertStringToFixedByteArray("udp", 8);
             }
             else
             {
                 debugConfig.spt_ins_type = ConvertStringToFixedByteArray("shibo", 8);
+                debugConfig.spt_agreement = ConvertStringToFixedByteArray("udp", 8);
             }
             debugConfig.spt_ins_ip = ConvertStringToFixedByteArray(config_ins_ip_textbox1.Text, 16);
             debugConfig.spt_ins_port = int.Parse(config_ins_port_textbox1.Text);
-            debugConfig.spt_agreement = ConvertStringToFixedByteArray("udp", 8);
+            //debugConfig.spt_agreement = ConvertStringToFixedByteArray("udp", 8);
             debugConfig.spt_message_id = 0;
             debugConfig.spt_region = 8;
             debugConfig.spt_sys_time_enable = 0;
@@ -966,18 +1311,21 @@ namespace LZ
             if (config_rb_instype_by2.IsChecked == true)
             {
                 debugConfig.vt_ins_type = ConvertStringToFixedByteArray("bynav", 8);
+                debugConfig.vt_agreement = config_rb_by_broadcast2.IsChecked == true ? ConvertStringToFixedByteArray("tcp", 8) : ConvertStringToFixedByteArray("udp", 8);
             }
             else if (config_rb_instype_rt2.IsChecked == true)
             {
                 debugConfig.vt_ins_type = ConvertStringToFixedByteArray("rt", 8);
+                debugConfig.vt_agreement = ConvertStringToFixedByteArray("udp", 8);
             }
             else
             {
                 debugConfig.vt_ins_type = ConvertStringToFixedByteArray("shibo", 8);
+                debugConfig.vt_agreement = ConvertStringToFixedByteArray("udp", 8);
             }
             debugConfig.vt_ins_ip = ConvertStringToFixedByteArray(config_ins_ip_textbox2.Text, 16);
             debugConfig.vt_ins_port = int.Parse(config_ins_port_textbox2.Text);
-            debugConfig.vt_agreement = ConvertStringToFixedByteArray("udp", 8);
+            //debugConfig.vt_agreement = ConvertStringToFixedByteArray("udp", 8);
             debugConfig.vt_message_id = 0;
             debugConfig.vt_region = 8;
             debugConfig.vt_sys_time_enable = 0;
@@ -1021,22 +1369,29 @@ namespace LZ
 
             ///Headertraker
             debugConfig.headtrakertype = int.Parse(config_headtraker_textbox.Text);
-            debugConfig.dbc_version = int.Parse(config_dbc_version_textbox.Text);
+            if(config_rb_robot.IsChecked == true)
+            {
+                debugConfig.dbc_version = 2;
+            }
+            else
+            {
+                debugConfig.dbc_version = 1;
+            }
 
             debugConfig.save_mode = uint.Parse(config_save_textbox.Text);
 
-            AppendLog($"bottom->\tRobot_Type:{System.Text.Encoding.ASCII.GetString(debugConfig.robot_type).TrimEnd('\0')}");
-            AppendLog($"\tCan_Device:{System.Text.Encoding.ASCII.GetString(debugConfig.can_device_name).TrimEnd('\0')}");
+            AppendLog($"bottom->\tRobot_Type:{GetStringFromByteArray(debugConfig.robot_type)}");
+            AppendLog($"\tCan_Device:{GetStringFromByteArray(debugConfig.can_device_name)}");
             AppendLog($"\tCan_Baud:{debugConfig.can_baud}\r\n");
 
-            AppendLog($"NET->\t LOCAL_IP1:{System.Text.Encoding.ASCII.GetString(debugConfig.local_ip1).TrimEnd('\0')}");
-            AppendLog($"\t LOCAL_IP2:{System.Text.Encoding.ASCII.GetString(debugConfig.local_ip2).TrimEnd('\0')}\r\n");
+            AppendLog($"NET->\t LOCAL_IP1:{GetStringFromByteArray(debugConfig.local_ip1)}");
+            AppendLog($"\t LOCAL_IP2:{GetStringFromByteArray(debugConfig.local_ip2)}\r\n");
 
             AppendLog($"UPPER->\tTCP_LOCAL_PORT:{debugConfig.tcp_local_port.ToString()},TCP_LOCAL_PORT1:{debugConfig.tcp_local_port1}\r\n");
-            AppendLog($"\tUDP_SERVER_IP:{System.Text.Encoding.ASCII.GetString(debugConfig.udp_server_ip).TrimEnd('\0')},UDP_SERVER_PORT:{debugConfig.udp_server_port}\r\n");
-            AppendLog($"\tDEFAULT_PATH_FILE_NAME:{System.Text.Encoding.ASCII.GetString(debugConfig.default_path_file_name).TrimEnd('\0')}\r\n");
+            AppendLog($"\tUDP_SERVER_IP:{GetStringFromByteArray(debugConfig.udp_server_ip)},UDP_SERVER_PORT:{debugConfig.udp_server_port}\r\n");
+            AppendLog($"\tDEFAULT_PATH_FILE_NAME:{GetStringFromByteArray(debugConfig.default_path_file_name)}\r\n");
 
-            AppendLog($"INS->\tInsType:{System.Text.Encoding.ASCII.GetString(debugConfig.udp_server_ip).TrimEnd('\0')}");
+            AppendLog($"INS->\tInsType:{GetStringFromByteArray(debugConfig.udp_server_ip)}");
             return true;
         }
 
@@ -1111,7 +1466,7 @@ namespace LZ
                 config_daq_can_baud_textbox.Text = "500";
 
                 config_headtraker_textbox.Text = "0";
-                config_dbc_version_textbox.Text = "2";
+                config_rb_robot.IsChecked = true;
 
                 config_save_textbox.Text = "0";
 
@@ -1159,109 +1514,299 @@ namespace LZ
             }
         }
 
+        //private async void Update_Button_Click(object sender, RoutedEventArgs e)
+        //{
+        //    // 1. 弹出文件选择框
+        //    var openFileDialog = new Microsoft.Win32.OpenFileDialog();
+        //    openFileDialog.Filter = "所有文件 (*.*)|*.*";
+        //    openFileDialog.Title = "选择要上传的文件";
+
+        //    //if (openFileDialog.ShowDialog() == true)
+        //    //{
+        //    //    string selectedFilePath = openFileDialog.FileName;
+        //    //    string fileName = System.IO.Path.GetFileName(selectedFilePath);
+
+        //    //    AppendLog($"开始上传文件: {fileName}\r\n");
+
+        //    //    try
+        //    //    {
+        //    //        string remoteDir = "/home/root/";
+        //    //        string backupDir = "/home/root/backup/";
+        //    //        string originalFile = "driverobot_arm";
+        //    //        string backupFile = $"driverobot_arm_backup_{DateTime.Now:yyyyMMdd_HHmmss}";
+
+        //    //        try
+        //    //        {
+        //    //            bool backupDirExists = await ftpClient.FileExistsAsync(backupDir);
+        //    //            if (!backupDirExists)
+        //    //            {
+        //    //                AppendLog("创建backup文件夹...\r\n");
+        //    //                await ftpClient.CreateDirectoryAsync(backupDir);
+        //    //                AppendLog("backup文件夹创建成功\r\n");
+        //    //            }
+        //    //        }
+        //    //        catch (Exception ex)
+        //    //        {
+        //    //            AppendLog($"创建backup文件夹失败: {ex.Message}\r\n");
+        //    //            // 继续执行，可能文件夹已存在
+        //    //        }
+
+        //    //        // 4. 备份原有的driverobot_arm文件到backup文件夹
+        //    //        bool fileExists = await ftpClient.FileExistsAsync(remoteDir + originalFile);
+
+        //    //        if (fileExists)
+        //    //        {
+        //    //            AppendLog("发现原有driverobot_arm文件，开始备份到backup文件夹...\r\n");
+
+        //    //            try
+        //    //            {
+        //    //                // 先下载原文件到临时位置
+        //    //                MoveFileAsync();
+        //    //            }
+        //    //            catch (Exception ex)
+        //    //            {
+        //    //                AppendLog($"备份失败: {ex.Message}\r\n");
+        //    //                MessageBox.Show($"备份文件失败: {ex.Message}", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+        //    //            }
+        //    //        }
+        //    //        else
+        //    //        {
+        //    //            AppendLog("未发现原有driverobot_arm文件，跳过备份步骤\r\n");
+        //    //        }
+
+        //    //        // 5. 上传新文件
+        //    //        AppendLog("开始上传新文件...\r\n");
+        //    //        string remoteFilePath = remoteDir + originalFile;
+
+        //    //        await ftpClient.UploadFileAsync(selectedFilePath, remoteFilePath);
+
+        //    //        AppendLog($"文件上传成功: {fileName} -> {remoteFilePath}\r\n");
+
+        //    //        // 6. 为上传的文件设置可执行权限
+        //    //        AppendLog("设置文件可执行权限...\r\n");
+        //    //        bool permissionSet = await ftpClient.SetFilePermissionsAsync(remoteFilePath, "111");
+
+        //    //        if (permissionSet)
+        //    //        {
+        //    //            AppendLog("文件权限设置成功 (755)\r\n");
+        //    //        }
+        //    //        else
+        //    //        {
+        //    //            AppendLog("警告：文件权限设置失败\r\n");
+        //    //            MessageBox.Show("文件权限设置失败，可能需要手动设置权限", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+        //    //        }
+
+        //    //        // 7. 验证上传结果
+        //    //        bool uploadVerified = await ftpClient.FileExistsAsync(remoteFilePath);
+        //    //        if (uploadVerified)
+        //    //        {
+        //    //            AppendLog("文件上传验证成功\r\n");
+        //    //            MessageBox.Show("文件上传成功！权限已设置为可执行。", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
+        //    //        }
+        //    //        else
+        //    //        {
+        //    //            AppendLog("警告：文件上传验证失败\r\n");
+        //    //            MessageBox.Show("文件上传验证失败，请检查服务器状态", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+        //    //        }
+        //    //    }
+        //    //    catch (Exception ex)
+        //    //    {
+        //    //        AppendLog($"文件上传失败: {ex.Message}\r\n");
+        //    //        MessageBox.Show($"文件上传失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+
+        //    //    }
+        //    //}
+        //}
+
         private async void Update_Button_Click(object sender, RoutedEventArgs e)
         {
             // 1. 弹出文件选择框
             var openFileDialog = new Microsoft.Win32.OpenFileDialog();
             openFileDialog.Filter = "所有文件 (*.*)|*.*";
-            openFileDialog.Title = "选择要上传的文件";
+            openFileDialog.Title = "选择要更新的程序文件";
 
-            //if (openFileDialog.ShowDialog() == true)
-            //{
-            //    string selectedFilePath = openFileDialog.FileName;
-            //    string fileName = System.IO.Path.GetFileName(selectedFilePath);
+            if (openFileDialog.ShowDialog() == true)
+            {
+                string selectedFilePath = openFileDialog.FileName;
+                string fileName = System.IO.Path.GetFileName(selectedFilePath);
 
-            //    AppendLog($"开始上传文件: {fileName}\r\n");
+                AppendLog($"开始更新程序，选择本地文件: {fileName}\r\n");
 
-            //    try
-            //    {
-            //        string remoteDir = "/home/root/";
-            //        string backupDir = "/home/root/backup/";
-            //        string originalFile = "driverobot_arm";
-            //        string backupFile = $"driverobot_arm_backup_{DateTime.Now:yyyyMMdd_HHmmss}";
+                try
+                {
+                    Update_Button.IsEnabled = false; // 更新期间禁用按钮防止重复点击
 
-            //        try
-            //        {
-            //            bool backupDirExists = await ftpClient.FileExistsAsync(backupDir);
-            //            if (!backupDirExists)
-            //            {
-            //                AppendLog("创建backup文件夹...\r\n");
-            //                await ftpClient.CreateDirectoryAsync(backupDir);
-            //                AppendLog("backup文件夹创建成功\r\n");
-            //            }
-            //        }
-            //        catch (Exception ex)
-            //        {
-            //            AppendLog($"创建backup文件夹失败: {ex.Message}\r\n");
-            //            // 继续执行，可能文件夹已存在
-            //        }
+                    string remoteDir = "/home/root/";
+                    string backupDir = "/home/root/bak/";
+                    string originalFile = "driverobot_arm"; // 默认的远程程序名称
+                    string backupFileName = $"{originalFile}_{DateTime.Now:yyyyMMdd_HHmmss}"; // 加上当前日期时间的备份名
+                    string remoteFilePath = remoteDir + originalFile;
 
-            //        // 4. 备份原有的driverobot_arm文件到backup文件夹
-            //        bool fileExists = await ftpClient.FileExistsAsync(remoteDir + originalFile);
+                    // 2. 检查并创建 bak 文件夹
+                    //bool backupDirExists = await ftpClient.FileExistsAsync(backupDir);
+                    bool backupDirExists = await ftpClient.DirectoryExistsAsync(backupDir);
+                    if (!backupDirExists)
+                    {
+                        AppendLog("未找到 bak 文件夹，正在创建...\r\n");
+                        await ftpClient.CreateDirectoryAsync(backupDir);
+                    }
 
-            //        if (fileExists)
-            //        {
-            //            AppendLog("发现原有driverobot_arm文件，开始备份到backup文件夹...\r\n");
+                    // 3. 检查远程是否存在原程序，如果存在则将其移动到 bak 文件夹备份
+                    bool fileExists = await ftpClient.FileExistsAsync(remoteFilePath);
+                    if (fileExists)
+                    {
+                        string backupPath = backupDir + backupFileName;
+                        AppendLog($"发现原程序，正在备份为: {backupPath} ...\r\n");
+                        await ftpClient.MoveFileAsync(remoteFilePath, backupPath);
+                    }
+                    else
+                    {
+                        AppendLog("未发现原有程序文件，跳过备份步骤\r\n");
+                    }
 
-            //            try
-            //            {
-            //                // 先下载原文件到临时位置
-            //                MoveFileAsync();
-            //            }
-            //            catch (Exception ex)
-            //            {
-            //                AppendLog($"备份失败: {ex.Message}\r\n");
-            //                MessageBox.Show($"备份文件失败: {ex.Message}", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
-            //            }
-            //        }
-            //        else
-            //        {
-            //            AppendLog("未发现原有driverobot_arm文件，跳过备份步骤\r\n");
-            //        }
+                    // 4. 通过 FTP 传输选中的文件到远程目录
+                    AppendLog($"开始上传新程序到: {remoteFilePath} ...\r\n");
+                    await ftpClient.UploadFileAsync(selectedFilePath, remoteFilePath);
+                    AppendLog($"文件上传成功！\r\n");
 
-            //        // 5. 上传新文件
-            //        AppendLog("开始上传新文件...\r\n");
-            //        string remoteFilePath = remoteDir + originalFile;
+                    // 5. 为上传的文件设置可执行权限（比如777）
+                    AppendLog("正在设置文件可执行权限...\r\n");
+                    bool permissionSet = await ftpClient.SetFilePermissionsAsync(remoteFilePath, "+x");
 
-            //        await ftpClient.UploadFileAsync(selectedFilePath, remoteFilePath);
+                    if (permissionSet)
+                    {
+                        AppendLog("权限设置成功\r\n");
+                        // 弹窗提示更新成功，并在主窗口居中
+                        //HandyControl.Controls.MessageBox.Show(this, "程序更新成功！权限已设置为可执行。", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                        MessageBoxResult result = HandyControl.Controls.MessageBox.Show(
+                                                this,
+                                                "程序更新成功！是否立即重启？\n\n(选择“是”进行重启，选择“否”稍后处理)",
+                                                "程序更新",
+                                                MessageBoxButton.YesNo,
+                                                MessageBoxImage.Information);
 
-            //        AppendLog($"文件上传成功: {fileName} -> {remoteFilePath}\r\n");
-
-            //        // 6. 为上传的文件设置可执行权限
-            //        AppendLog("设置文件可执行权限...\r\n");
-            //        bool permissionSet = await ftpClient.SetFilePermissionsAsync(remoteFilePath, "111");
-
-            //        if (permissionSet)
-            //        {
-            //            AppendLog("文件权限设置成功 (755)\r\n");
-            //        }
-            //        else
-            //        {
-            //            AppendLog("警告：文件权限设置失败\r\n");
-            //            MessageBox.Show("文件权限设置失败，可能需要手动设置权限", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
-            //        }
-
-            //        // 7. 验证上传结果
-            //        bool uploadVerified = await ftpClient.FileExistsAsync(remoteFilePath);
-            //        if (uploadVerified)
-            //        {
-            //            AppendLog("文件上传验证成功\r\n");
-            //            MessageBox.Show("文件上传成功！权限已设置为可执行。", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
-            //        }
-            //        else
-            //        {
-            //            AppendLog("警告：文件上传验证失败\r\n");
-            //            MessageBox.Show("文件上传验证失败，请检查服务器状态", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
-            //        }
-            //    }
-            //    catch (Exception ex)
-            //    {
-            //        AppendLog($"文件上传失败: {ex.Message}\r\n");
-            //        MessageBox.Show($"文件上传失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-
-            //    }
-            //}
+                        if (result == MessageBoxResult.Yes)
+                        {
+                            Restart_Button_Click(null, null);
+                        }
+                    }
+                    else
+                    {
+                        AppendLog("警告：程序上传成功，但权限设置失败\r\n");
+                        HandyControl.Controls.MessageBox.Show(this, "文件上传成功，但权限设置失败，可能需要手动设置。", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"程序更新失败: {ex.Message}\r\n");
+                    HandyControl.Controls.MessageBox.Show(this, $"更新失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                finally
+                {
+                    // 结束后恢复按钮状态
+                    Update_Button.IsEnabled = true;
+                }
+            }
         }
+
+        // 读取固定长度 C 字符数组（ASCII），以第一个 '\0' 截断
+        private static string ReadFixedAsciiString(byte[] buf, int offset, int length)
+        {
+            if (buf == null || offset < 0 || offset + length > buf.Length) return string.Empty;
+            int end = offset;
+            int max = offset + length;
+            while (end < max && buf[end] != 0) end++;
+            return Encoding.ASCII.GetString(buf, offset, end - offset);
+        }
+
+
+        // 尝试解析 0x95 的二进制消息，返回 true 则 out data 有效
+        private static bool TryParseLaneRelative(byte[] msg, out LaneRelativeDataC data)
+        {
+            data = null;
+            if (msg == null || msg.Length < 4) return false;
+
+            int offset = 0;
+            // 小端整数（C 服务器在 x86/x64 上通常为 little-endian）
+            if (offset + 4 > msg.Length) return false;
+            int laneNum = BitConverter.ToInt32(msg, offset);
+            offset += 4;
+
+            if (laneNum <= 0 || laneNum > 10) return false; // 容错上限与服务器定义一致
+
+            var result = new LaneRelativeDataC { LaneNum = laneNum };
+
+            for (int i = 0; i < laneNum; i++)
+            {
+                // 每个 Vehicle2LaneInfo 最少需要 20 + 128 + 4 字节（ID、LaneName、relative_num）
+                if (offset + 20 + 128 + 4 > msg.Length) return false;
+
+                string id = ReadFixedAsciiString(msg, offset, 20);
+                offset += 20;
+
+                string laneName = ReadFixedAsciiString(msg, offset, 128);
+                offset += 128;
+
+                int relativeNum = BitConverter.ToInt32(msg, offset);
+                offset += 4;
+
+                if (relativeNum < 0 || relativeNum > 10) return false; // 安全检查
+
+                // 每个 LaneMetrics1 为 4 个 float（16 字节）
+                int metricsBytes = relativeNum * 16;
+                if (offset + metricsBytes > msg.Length) return false;
+
+                var info = new Vehicle2LaneInfoC
+                {
+                    ID = id,
+                    LaneName = laneName,
+                    RelativeNum = relativeNum
+                };
+
+                for (int j = 0; j<relativeNum; j++)
+                {
+                    // 依次读取 4 个 float（little-endian）
+                    float distance = BitConverter.ToSingle(msg, offset); offset += 4;
+                    float lateralSpeed = BitConverter.ToSingle(msg, offset); offset += 4;
+                    float lateralAcc = BitConverter.ToSingle(msg, offset); offset += 4;
+                    float ttc = BitConverter.ToSingle(msg, offset); offset += 4;
+
+                    info.Metrics.Add(new LaneMetricsItem
+                    {
+                        Distance = distance,
+                        LateralSpeed = lateralSpeed,
+                        LateralAcc = lateralAcc,
+                        TTC = ttc
+                    });
+                }
+
+                result.Infos.Add(info);
+            }
+
+            data = result;
+            return true;
+        }
+
+        // 处理并记录解析后的车道数据（可扩展为更新 UI）
+        private void HandleLaneRelativeData(LaneRelativeDataC laneData)
+        {
+            if (laneData == null) return;
+            Dispatcher.Invoke(() =>
+            {
+                AppendLog($"接收到 0x95 车道数据：laneNum={laneData.LaneNum}");
+                for (int i = 0; i < laneData.Infos.Count; i++)
+                {
+                    var inf = laneData.Infos[i];
+                    AppendLog($"  Lane[{i}] ID=\"{inf.ID}\", Name=\"{inf.LaneName}\", points={inf.RelativeNum}");
+                    for (int j = 0; j < inf.Metrics.Count; j++)
+                    {
+                        var m = inf.Metrics[j];
+                        AppendLog($"    Pt[{j}] dist={m.Distance:F3}m latSpeed={m.LateralSpeed:F3}m/s latAcc={m.LateralAcc:F3}m/s2 TTC={m.TTC:F3}s");
+                    }
+                }
+            });
+        }
+
 
         private void Refresh_Track_Button_Click(object sender, RoutedEventArgs e)
         {
@@ -1700,16 +2245,60 @@ namespace LZ
 
         private double _zoom = 1.0;
         private readonly double _minZoom = 0.2;
-        private readonly double _maxZoom = 5.0;
+        private readonly double _maxZoom = 20.0;
         private ScaleTransform _trackCanvasScale;
         private TranslateTransform _trackCanvasTranslate;
         private ScaleTransform _driverScale;
         private TranslateTransform _driverTranslate;
 
         // 新增方法：处理滚轮缩放（添加到类中）
+        //private void MainWindow_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        //{
+        //    // 只在鼠标在 TrackCanvas 或 Driver 上时响应缩放（避免干扰其它控件）
+        //    Point posOnTrack = e.GetPosition(TrackCanvas);
+        //    bool overTrack = posOnTrack.X >= 0 && posOnTrack.Y >= 0 && posOnTrack.X <= TrackCanvas.ActualWidth && posOnTrack.Y <= TrackCanvas.ActualHeight;
+        //    Point posOnDriver = e.GetPosition(Driver);
+        //    bool overDriver = posOnDriver.X >= 0 && posOnDriver.Y >= 0 && posOnDriver.X <= Driver.ActualWidth && posOnDriver.Y <= Driver.ActualHeight;
+
+        //    if (!overTrack && !overDriver) return;
+
+        //    double zoomFactor = e.Delta > 0 ? 1.1 : 1.0 / 1.1;
+        //    double newZoom = Math.Clamp(_zoom * zoomFactor, _minZoom, _maxZoom);
+        //    double scaleChange = newZoom / _zoom;
+        //    if (Math.Abs(scaleChange - 1.0) < 1e-6) return;
+
+        //    // 对 TrackCanvas 使用相对于 TrackCanvas 的鼠标位置，保持鼠标指针下的内容不动
+        //    if (overTrack)
+        //    {
+        //        // 当前 translate + 缩放后保持鼠标点不动的公式： translate' = translate - mousePos * (scaleChange - 1)
+        //        _trackCanvasTranslate.X = _trackCanvasTranslate.X - (posOnTrack.X * (scaleChange - 1));
+        //        _trackCanvasTranslate.Y = _trackCanvasTranslate.Y - (posOnTrack.Y * (scaleChange - 1));
+        //        _trackCanvasScale.ScaleX = newZoom;
+        //        _trackCanvasScale.ScaleY = newZoom;
+        //    }
+
+        //    // 对 Driver 使用相对于 Driver 的鼠标位置（同样逻辑）
+        //    if (overDriver)
+        //    {
+        //        _driverTranslate.X = _driverTranslate.X - (posOnDriver.X * (scaleChange - 1));
+        //        _driverTranslate.Y = _driverTranslate.Y - (posOnDriver.Y * (scaleChange - 1));
+        //        _driverScale.ScaleX = newZoom;
+        //        _driverScale.ScaleY = newZoom;
+        //    }
+
+        //    // 同步两者的缩放值（确保在只对其中一个控件滚轮时，另一个也按相同比例缩放）
+        //    // 如果你希望严格要求只有同时鼠标在两个控件上才同步，可移除下面两行
+        //    _trackCanvasScale.ScaleX = newZoom;
+        //    _trackCanvasScale.ScaleY = newZoom;
+        //    _driverScale.ScaleX = newZoom;
+        //    _driverScale.ScaleY = newZoom;
+
+        //    _zoom = newZoom;
+        //    e.Handled = true;
+        //}
+
         private void MainWindow_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
-            // 只在鼠标在 TrackCanvas 或 Driver 上时响应缩放（避免干扰其它控件）
             Point posOnTrack = e.GetPosition(TrackCanvas);
             bool overTrack = posOnTrack.X >= 0 && posOnTrack.Y >= 0 && posOnTrack.X <= TrackCanvas.ActualWidth && posOnTrack.Y <= TrackCanvas.ActualHeight;
             Point posOnDriver = e.GetPosition(Driver);
@@ -1717,41 +2306,43 @@ namespace LZ
 
             if (!overTrack && !overDriver) return;
 
-            double zoomFactor = e.Delta > 0 ? 1.1 : 1.0 / 1.1;
-            double newZoom = Math.Clamp(_zoom * zoomFactor, _minZoom, _maxZoom);
-            double scaleChange = newZoom / _zoom;
-            if (Math.Abs(scaleChange - 1.0) < 1e-6) return;
+            // 【核心优化1：提升单次缩放倍率并支持高精度滚动】
+            // 标准鼠标滚轮拨动一格，e.Delta 的值通常是 120。
+            // 使用 1.25 作为基础倍率，比之前的 1.1 响应快很多！
+            double step = 1.25;
+            double zoomFactor = Math.Pow(step, e.Delta / 120.0);
 
-            // 对 TrackCanvas 使用相对于 TrackCanvas 的鼠标位置，保持鼠标指针下的内容不动
+            double newZoom = Math.Clamp(_zoom * zoomFactor, _minZoom, _maxZoom);
+
+            // 【核心优化2：忽略极微小的计算抖动，防止无效重绘】
+            double scaleChange = newZoom / _zoom;
+            if (Math.Abs(scaleChange - 1.0) < 0.001) return;
+
+            // 对 TrackCanvas 保持鼠标指针下的内容不动
             if (overTrack)
             {
-                // 当前 translate + 缩放后保持鼠标点不动的公式： translate' = translate - mousePos * (scaleChange - 1)
-                _trackCanvasTranslate.X = _trackCanvasTranslate.X - (posOnTrack.X * (scaleChange - 1));
-                _trackCanvasTranslate.Y = _trackCanvasTranslate.Y - (posOnTrack.Y * (scaleChange - 1));
-                _trackCanvasScale.ScaleX = newZoom;
-                _trackCanvasScale.ScaleY = newZoom;
+                _trackCanvasTranslate.X -= posOnTrack.X * (scaleChange - 1);
+                _trackCanvasTranslate.Y -= posOnTrack.Y * (scaleChange - 1);
             }
 
-            // 对 Driver 使用相对于 Driver 的鼠标位置（同样逻辑）
+            // 对 Driver 保持鼠标指针下的内容不动
             if (overDriver)
             {
-                _driverTranslate.X = _driverTranslate.X - (posOnDriver.X * (scaleChange - 1));
-                _driverTranslate.Y = _driverTranslate.Y - (posOnDriver.Y * (scaleChange - 1));
-                _driverScale.ScaleX = newZoom;
-                _driverScale.ScaleY = newZoom;
+                _driverTranslate.X -= posOnDriver.X * (scaleChange - 1);
+                _driverTranslate.Y -= posOnDriver.Y * (scaleChange - 1);
             }
 
-            // 同步两者的缩放值（确保在只对其中一个控件滚轮时，另一个也按相同比例缩放）
-            // 如果你希望严格要求只有同时鼠标在两个控件上才同步，可移除下面两行
+            // 同步两者的缩放值
             _trackCanvasScale.ScaleX = newZoom;
             _trackCanvasScale.ScaleY = newZoom;
             _driverScale.ScaleX = newZoom;
             _driverScale.ScaleY = newZoom;
 
             _zoom = newZoom;
+
+            // 标记事件已处理，防止整个窗口跟着滚动
             e.Handled = true;
         }
-
         private void CalculateImgScaleAndOffset()
         {
             // 获取Canvas实际尺寸（需在Window加载后获取，否则为0）
@@ -1952,7 +2543,7 @@ namespace LZ
                 //LeftWarningArea.Fill = isLeftWarningBlinking ? Brushes.Red : Brushes.Transparent;
                 LeftWarningArea.Fill = Brushes.Red;
                 RightWarningArea.Fill = Brushes.Transparent;
-                AppendLog("LEFT WARNING\r\n");
+                //AppendLog("LEFT WARNING\r\n");
             }
             else if (robotData_Part2.VUTPF_Lateral_Err > 0.2) // 车辆偏右（Y<0）
             {
@@ -1962,7 +2553,7 @@ namespace LZ
                 RightWarningArea.Fill = isRightWarningBlinking ? Brushes.Red : Brushes.Transparent;
                 RightWarningArea.Fill = Brushes.Red;
                 LeftWarningArea.Fill = Brushes.Transparent;
-                AppendLog("RIGHT WARNING\r\n");
+                //AppendLog("RIGHT WARNING\r\n");
             }
             else // 车辆在中间（Y=0）
             {
@@ -1974,6 +2565,142 @@ namespace LZ
             }
         }
 
+
+        // 专门用于解析 C/C++ 定长字节数组的字符串
+        private string GetStringFromByteArray(byte[] bytes)
+        {
+            if (bytes == null) return string.Empty;
+
+            // 找到第一个 \0 (0x00) 的索引位置
+            int nullIndex = Array.IndexOf(bytes, (byte)0);
+
+            // 如果找到了 \0，就只取 \0 前面的长度；如果没找到，就取整个数组长度
+            int length = nullIndex >= 0 ? nullIndex : bytes.Length;
+
+            // 按照实际有效长度转换为字符串
+            return System.Text.Encoding.ASCII.GetString(bytes, 0, length);
+        }
+
+        private void Calculate_COG_Button_Click(object sender, RoutedEventArgs e)
+        {
+            debugData.Header1 = 0xAA;
+            debugData.Header2 = 0x55;
+            debugData.DeviceType = 0x01; // 假设设备类型为1
+            debugData.FunctionCode = 0x0084; // 假设功能码为1
+            string paramStr = "Calculate_COG";
+
+            // 将字符串转换为字节数组并赋值给FuntionParameter
+            byte[] paramBytes = Encoding.UTF8.GetBytes(paramStr);
+            debugData.Length = (uint)paramBytes.Length;
+            // 确保不超过数组大小限制
+            // int copyLength = Math.Min(paramBytes.Length, debugData.FuntionParamter.Length);
+            Array.Copy(paramBytes, debugData.FuntionParamter, debugData.Length);
+            // debugData.Length = (uint)copyLength; // 设置实际参数长度
+
+            // 通过TCP发送debugData
+            if (_client != null && _client.Connected && _stream != null)
+            {
+                try
+                {
+                    byte[] dataToSend = StructStreamReader.StructToByteArray(debugData);
+                    _stream.Write(dataToSend, 0, dataToSend.Length);
+                    AppendLog($"已发送 {dataToSend.Length} 字节数据\r\n");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"发送失败: {ex.Message}\r\n");
+                }
+            }
+            else
+            {
+                AppendLog("TCP连接未建立，无法发送数据\r\n");
+            }
+        }
+
+
+
+        // 在 MainWindow 类中添加以下方法
+        private GMapPolygon _electronicFence;
+        private List<PointLatLng> _fencePoints;
+        // 用于记录车辆上一次是否在围栏外，防止疯狂打印日志卡死 UI
+        private bool _wasOutsideFence = false;
+        private void AddElectronicFence()
+        {
+            // 1. 定义围栏的顶点坐标 (请替换为你实际测试场地的经纬度)
+            // 这里以你代码中现有的中心点 (28.35335215, 112.5094273) 附近为例
+            _fencePoints = new List<PointLatLng>
+            {
+                new PointLatLng(28.3542445550822, 112.511610870102),
+                new PointLatLng(28.3543953380492, 112.511510038889),
+                new PointLatLng(28.35402939, 112.51096714),
+                new PointLatLng(28.35390217, 112.51107334),
+            };
+
+            // 2. 创建 GMapPolygon
+            _electronicFence = new GMapPolygon(_fencePoints);
+
+            // 3. 设置多边形的外观 (使用 WPF 的 Path)
+            System.Windows.Shapes.Path polygonPath = new System.Windows.Shapes.Path
+            {
+                Stroke = Brushes.OrangeRed,          // 边框颜色
+                StrokeThickness = 2,                 // 边框粗细
+                Fill = new SolidColorBrush(Color.FromArgb(50, 255, 69, 0)), // 填充颜色及透明度 (ARGB)
+                StrokeDashArray = new DoubleCollection { 4, 2 } // 虚线样式
+            };
+
+            _electronicFence.Shape = polygonPath;
+
+            // 4. 将多边形添加到地图的 Markers 集合中
+            OfflineMap.Markers.Add(_electronicFence);
+        }
+
+        // 添加 Loaded 事件处理方法
+        private void OfflineMap_Loaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // 1. 【关键】因为我们自己写了 Provider 来读本地文件，
+                // GMap 会把我们写的 Provider 当作一个"服务器"。
+                // 所以这里必须设置为 ServerOnly 或 ServerAndCache，千万不要设为 CacheOnly，否则它不会触发查询。
+                //GMaps.Instance.Mode = AccessMode.ServerOnly;
+                GMaps.Instance.Mode = AccessMode.ServerAndCache;
+
+                // 2. 指定你的 mbtiles 文件路径（假设你把它放在了程序运行目录的 assets 文件夹下）
+                string mbtilesPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets", "satellite_tiles_1.mbtiles");
+
+                // 3. 将地图提供者设置为我们刚刚写的自定义提供者
+                OfflineMap.MapProvider = new MBTilesMapProvider(mbtilesPath);
+
+                // 4. 设置缩放级别与中心点 (确保你设置的中心点在你的 mbtiles 离线包覆盖范围内)
+                OfflineMap.MinZoom = 10;
+                OfflineMap.MaxZoom = 18;
+                OfflineMap.Zoom = 15;
+                OfflineMap.Position = new PointLatLng(28.35335215, 112.5094273); // 替换为你场地的实际经纬度
+                OfflineMap.ShowCenter = false;
+                AddElectronicFence();
+
+                // 初始化车辆标记...
+                if (carMarker == null)
+                {
+                    carMarker = new GMapMarker(OfflineMap.Position);
+                    carMarker.Shape = new System.Windows.Shapes.Ellipse
+                    {
+                        Width = 10,
+                        Height = 10,
+                        Fill = Brushes.Red,
+                        Stroke = Brushes.White,
+                        StrokeThickness = 1.5,
+                        ToolTip = "VUT 车辆"
+                    };
+                    OfflineMap.Markers.Add(carMarker);
+                }
+
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"加载 MBTiles 地图异常: {ex.Message}");
+            }
+        }
     }
 
 }

@@ -450,6 +450,53 @@
                                 </GroupBox>
                             </Grid>
                         </TabItem>
+                        <TabItem Header="UWB配置">
+                            <Grid ShowGridLines="False">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="50"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Grid.Row="0">
+                                    <Button x:Name="Read_Geofence_Button" Content="读取" Style="{StaticResource ButtonPrimary}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0" Click="Read_Geofence_Button_Click"/>
+                                    <Button x:Name="Write_Geofence_Button" Content="写入" Style="{StaticResource ButtonPrimary}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="20,10,0,0" Click="Write_Geofence_Button_Click"/>
+                                </StackPanel>
+                                <GroupBox Grid.Row="1" Header="电子围栏（4个顶点）" hc:TitleElement.TitlePlacement="Left" Margin="20,10,20,10">
+                                    <Grid ShowGridLines="True">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="200"/>
+                                            <ColumnDefinition Width="220"/>
+                                            <ColumnDefinition Width="220"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="顶点" Style="{StaticResource TextBlockBoldBaseStyle}" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="1" Text="经度 (X)" Style="{StaticResource TextBlockBoldBaseStyle}" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="2" Text="纬度 (Y)" Style="{StaticResource TextBlockBoldBaseStyle}" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="顶点 1" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="uwb_fence_p1_lon" Grid.Row="1" Grid.Column="1" Style="{StaticResource TextBoxExtend}" Width="180" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                                        <TextBox x:Name="uwb_fence_p1_lat" Grid.Row="1" Grid.Column="2" Style="{StaticResource TextBoxExtend}" Width="180" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="顶点 2" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="uwb_fence_p2_lon" Grid.Row="2" Grid.Column="1" Style="{StaticResource TextBoxExtend}" Width="180" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                                        <TextBox x:Name="uwb_fence_p2_lat" Grid.Row="2" Grid.Column="2" Style="{StaticResource TextBoxExtend}" Width="180" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="顶点 3" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="uwb_fence_p3_lon" Grid.Row="3" Grid.Column="1" Style="{StaticResource TextBoxExtend}" Width="180" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                                        <TextBox x:Name="uwb_fence_p3_lat" Grid.Row="3" Grid.Column="2" Style="{StaticResource TextBoxExtend}" Width="180" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="顶点 4" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                        <TextBox x:Name="uwb_fence_p4_lon" Grid.Row="4" Grid.Column="1" Style="{StaticResource TextBoxExtend}" Width="180" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                                        <TextBox x:Name="uwb_fence_p4_lat" Grid.Row="4" Grid.Column="2" Style="{StaticResource TextBoxExtend}" Width="180" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                                    </Grid>
+                                </GroupBox>
+                            </Grid>
+                        </TabItem>
                     </TabControl>
                 </Grid>
 
@@ -782,9 +829,51 @@
                     <gmap:GMapControl x:Name="OfflineMap" Loaded="OfflineMap_Loaded" MouseWheelZoomType="MousePositionAndCenter" Margin="0"/>
                 </Grid>
             </TabItem>
+
             <TabItem Header="轨迹图">
-                <Grid>
-                    
+                <Grid Background="#FDFDFD">
+                    <Border x:Name="TrajectoryPlotContainer" ClipToBounds="True" Background="Transparent">
+                        <Canvas x:Name="PlotCanvas" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <Canvas.RenderTransform>
+                                <TransformGroup>
+                                    <ScaleTransform x:Name="PlotScale" ScaleX="8" ScaleY="8"/>
+                                    <TranslateTransform x:Name="PlotTranslate" X="0" Y="0"/>
+                                </TransformGroup>
+                            </Canvas.RenderTransform>
+
+                            <Polyline x:Name="Polyline_VUT" Stroke="#FF4500" StrokeThickness="0.3" StrokeLineJoin="Round"/>
+                            <Polyline x:Name="Polyline_SPT" Stroke="#1E90FF" StrokeThickness="0.3" StrokeLineJoin="Round"/>
+                            <Polyline x:Name="Polyline_VT" Stroke="#32CD32" StrokeThickness="0.3" StrokeLineJoin="Round"/>
+
+                            <Ellipse x:Name="Marker_VUT" Width="1" Height="1" Fill="#FF4500" Stroke="White" StrokeThickness="0.1" Visibility="Collapsed"/>
+                            <Ellipse x:Name="Marker_SPT" Width="1" Height="1" Fill="#1E90FF" Stroke="White" StrokeThickness="0.1" Visibility="Collapsed"/>
+                            <Ellipse x:Name="Marker_VT"  Width="1" Height="1" Fill="#32CD32" Stroke="White" StrokeThickness="0.1" Visibility="Collapsed"/>
+                        </Canvas>
+                    </Border>
+
+                    <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="15" Background="#80FFFFFF" Padding="10" CornerRadius="4">
+                        <StackPanel Orientation="Vertical">
+                            <StackPanel Orientation="Horizontal" Margin="0,2">
+                                <Rectangle Width="15" Height="4" Fill="#FF4500" VerticalAlignment="Center"/>
+                                <TextBlock Text=" VUT (主车)" Margin="5,0,0,0" FontSize="12" FontWeight="Bold"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,2">
+                                <Rectangle Width="15" Height="4" Fill="#1E90FF" VerticalAlignment="Center"/>
+                                <TextBlock Text=" SPT (目标车辆)" Margin="5,0,0,0" FontSize="12" FontWeight="Bold"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,2">
+                                <Rectangle Width="15" Height="4" Fill="#32CD32" VerticalAlignment="Center"/>
+                                <TextBlock Text=" VT (远端设备)" Margin="5,0,0,0" FontSize="12" FontWeight="Bold"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="15" Orientation="Vertical">
+
+                        <Button x:Name="Btn_ResetPlot" Style="{StaticResource ButtonPrimary}" Content="回到中心" Width="100" Height="32" Margin="0,0,0,8"  HorizontalAlignment="Left" Click="Btn_ResetPlot_Click"/>
+
+                        <TextBlock x:Name="Txt_PlotScaleInfo" Text="网格间距: 5m | 缩放倍率: 8.0x" 
+                       HorizontalAlignment="Right" Foreground="#666666" FontSize="11"/>
+                    </StackPanel>
                 </Grid>
             </TabItem>
 

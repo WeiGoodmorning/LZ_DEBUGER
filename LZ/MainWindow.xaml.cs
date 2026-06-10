@@ -180,6 +180,7 @@ namespace LZ
         SendBack sSendBack;
         DebugStatus sDebugStatus;
         DebugControlParam sDebugControlParam;
+        SGeofence sGeofence;
         OriginInfo origin = new OriginInfo();
         private CoordinateTransformationFactory _ctf;
         private ICoordinateTransformation _wgs84ToUtm;
@@ -209,6 +210,27 @@ namespace LZ
 
         private FtpClient ftpClient;
         public bool ftp_connected;
+
+
+        // 限制画布最大保留点数，防止长时间运行内存暴涨导致卡顿
+        private const int MaxTrackPointCount = 5000;
+
+        // 后台线程安全的坐标缓存点集
+        private readonly List<System.Windows.Point> _vutPointsCache = new List<System.Windows.Point>();
+        private readonly List<System.Windows.Point> _sptPointsCache = new List<System.Windows.Point>();
+        private readonly List<System.Windows.Point> _vtPointsCache = new List<System.Windows.Point>();
+
+        // 拖拽平移相关变量
+        private System.Windows.Point _mouseStartPoint;
+        private bool _isPlotDragging = false;
+
+        // 是否已经成功锁定了第一次数据作为轨迹图原点
+        private bool _isPlotOriginInitialized = false;
+
+        // 轨迹图独立的局部原点
+        private BlhPoint _plotOriginBLH = new BlhPoint();
+
+
         public MainWindow()
         {
             InitializeComponent();
@@ -226,7 +248,14 @@ namespace LZ
             sSendBack = new SendBack();
             sDebugStatus = new DebugStatus();
             sDebugControlParam = new DebugControlParam();
+            sGeofence = new SGeofence
+            {
+                nPointCount = 4,
+                vecPoints = new SPoint[4]
+            };
             ftpClient = new FtpClient();
+
+            InitializeDefaultGeofenceUI();
 
             // 构造函数中初始化 transform（在 InitializeComponent(); 和 ftpClient = new FtpClient(); 之后或合适位置）
             // 保留原有代码行，不要删除其它初始化
@@ -258,6 +287,17 @@ namespace LZ
             _wgs84ToUtm = _ctf.CreateFromCoordinateSystems(wgs84, utm);
             Restart_Button.IsEnabled = false;
             Update_Button.IsEnabled = false;
+
+            // 绑定轨迹图专属的鼠标缩放、拖拽交互处理
+            this.TrajectoryPlotContainer.MouseWheel += PlotCanvas_MouseWheel;
+            this.TrajectoryPlotContainer.MouseLeftButtonDown += PlotCanvas_MouseLeftButtonDown;
+            this.TrajectoryPlotContainer.MouseLeftButtonUp += PlotCanvas_MouseLeftButtonUp;
+            this.TrajectoryPlotContainer.MouseMove += PlotCanvas_MouseMove;
+
+            // 画布尺寸改变时，重置原点到画布中心
+            this.PlotCanvas.SizeChanged += (s, e) => ResetPlotCanvasCenter();
+
+
         }
 
         // 定时器事件处理方法
@@ -296,6 +336,8 @@ namespace LZ
 
             }
             UpdateDriverDisplay();
+            // 刷新高级轨迹图界面
+            RenderTrajectoryPlot();
             // 可选：让TextBox自动滚动到最后一行
             //AppendLog($"robotData_part1:{robotData_Part1.SBV}\r\n");
             //textBox3.AppendText($"robotData_part1:{robotData_Part1.Soft_Vertion}\r\n");
@@ -449,6 +491,12 @@ namespace LZ
                                     sDebugControlParam = ByteArrayToDebugControlParam(msg);
                                     AppendLog("控制参数接收成功!\r\n");
                                     break;
+                                case 0x96:
+                                    sGeofence = ByteArrayToGeofence(msg);
+                                    AppendLog($"电子围栏数据接收成功，点数: {sGeofence.nPointCount}，载荷长度: {msg.Length} 字节\r\n");
+                                    AppendLog($"电子围栏点坐标: {string.Join(", ", sGeofence.vecPoints.Select(p => $"({p.dLongitude:F8}, {p.dLatitude:F8})"))}\r\n");
+                                    UpdateGeofenceUI();
+                                    break;
                                 case 0x95:
                                     AppendLog($"pathfile{Encoding.UTF8.GetString(msg).TrimEnd('\0')}");
                                     Refresh_Track(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
@@ -537,6 +585,41 @@ namespace LZ
                                     }
                                     //debugConfig = ByteArrayToDebugConfig(data);
                                     break;
+                                case 0x86:
+                                    sSendBack = BytesToStruct<SendBack>(msg, 0);
+                                    if (sSendBack.ack == 1)
+                                    {
+                                        HandyControl.Controls.MessageBox.Show("电子围栏读取成功!");
+                                        UpdateGeofenceUI();
+                                    }
+                                    else
+                                    {
+                                        Dispatcher.Invoke(() => MessageBox.Show("电子围栏读取失败!", "UWB配置"));
+                                        AppendLog(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
+                                    }
+                                    break;
+                                case 0x87:
+                                    sSendBack = BytesToStruct<SendBack>(msg, 0);
+                                    if (sSendBack.ack == 1)
+                                    {
+                                        Dispatcher.Invoke(() =>
+                                        {
+                                            HandyControl.Controls.MessageBox.Show(
+                                                this,
+                                                "电子围栏写入成功！",
+                                                "UWB配置",
+                                                MessageBoxButton.OK,
+                                                MessageBoxImage.Information);
+                                        });
+                                        UpdateMapGeofence();
+                                        AppendLog(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
+                                    }
+                                    else
+                                    {
+                                        Dispatcher.Invoke(() => MessageBox.Show("电子围栏写入失败!", "UWB配置"));
+                                        AppendLog(Encoding.UTF8.GetString(msg).TrimEnd('\0'));
+                                    }
+                                    break;
                                 default:
                                     break;
                             }
@@ -614,7 +697,68 @@ namespace LZ
                                 robotData_Part3 = BytesToStruct<RoboteData_0x91_Part3>(msg, Marshal.SizeOf(typeof(RoboteData_0x91_Part1)) + Marshal.SizeOf(typeof(RoboteData_0x91_Part2)));
                                 robotData_Part4 = BytesToStruct<RoboteData_0x91_Part4>(msg, Marshal.SizeOf(typeof(RoboteData_0x91_Part1)) + Marshal.SizeOf(typeof(RoboteData_0x91_Part2)) + Marshal.SizeOf(typeof(RoboteData_0x91_Part3)));
                                 sDebugStatus = BytesToStruct<DebugStatus>(msg, Marshal.SizeOf(typeof(RoboteData_0x91_Part1)) + Marshal.SizeOf(typeof(RoboteData_0x91_Part2)) + Marshal.SizeOf(typeof(RoboteData_0x91_Part3)) + Marshal.SizeOf(typeof(RoboteData_0x91_Part4)));
-                                
+
+                                // 检查基准原点是否已初始化
+                                // 1. 动态初始化轨迹图专属原点（使用接收到的第一条有效 VUT 经纬度）
+                                if (!_isPlotOriginInitialized)
+                                {
+                                    double vutLat = robotData_Part2.VUTMP_Latitude;
+                                    double vutLon = robotData_Part2.VUTMP_Longitude;
+
+                                    if (vutLat != 0 && vutLon != 0)
+                                    {
+                                        _plotOriginBLH.Lat = vutLat;
+                                        _plotOriginBLH.Lon = vutLon;
+                                        _plotOriginBLH.Altitude = 0;
+                                        _plotOriginBLH.Heading = robotData_Part2.VUTMP_Azimuth; // 如果需要旋转，以当前航向为基准
+                                        _isPlotOriginInitialized = true;
+
+                                        // 第一次收到数据时，自动触发一次回中
+                                        Dispatcher.Invoke(() => Btn_ResetPlot_Click(null, null));
+                                    }
+                                }
+
+                                // 2. 只有原点初始化后，才开始解算相对位置，防止坐标爆表
+                                if (_isPlotOriginInitialized)
+                                {
+                                    // VUT 相对坐标解算
+                                    BlhPoint pVut = new BlhPoint { Lat = robotData_Part2.VUTMP_Latitude, Lon = robotData_Part2.VUTMP_Longitude };
+                                    if (pVut.Lat != 0 && pVut.Lon != 0)
+                                    {
+                                        GIS.Complanation(_plotOriginBLH, pVut, out XyzPoint xyz);
+                                        lock (_vutPointsCache)
+                                        {
+                                            _vutPointsCache.Add(new System.Windows.Point(xyz.X, xyz.Y));
+                                            if (_vutPointsCache.Count > MaxTrackPointCount) _vutPointsCache.RemoveAt(0);
+                                        }
+                                    }
+
+                                    // SPT 相对坐标解算
+                                    BlhPoint pSpt = new BlhPoint { Lat = robotData_Part3.SPTMP_Latitude, Lon = robotData_Part3.SPTMP_Longitude };
+                                    if (pSpt.Lat != 0 && pSpt.Lon != 0)
+                                    {
+                                        GIS.Complanation(_plotOriginBLH, pSpt, out XyzPoint xyz);
+                                        lock (_sptPointsCache)
+                                        {
+                                            _sptPointsCache.Add(new System.Windows.Point(xyz.X, xyz.Y));
+                                            if (_sptPointsCache.Count > MaxTrackPointCount) _sptPointsCache.RemoveAt(0);
+                                        }
+                                    }
+
+                                    // VT 相对坐标解算
+                                    BlhPoint pVt = new BlhPoint { Lat = robotData_Part4.SubMP_Latitude, Lon = robotData_Part4.SubMP_Longitude };
+                                    if (pVt.Lat != 0 && pVt.Lon != 0)
+                                    {
+                                        GIS.Complanation(_plotOriginBLH, pVt, out XyzPoint xyz);
+                                        lock (_vtPointsCache)
+                                        {
+                                            _vtPointsCache.Add(new System.Windows.Point(xyz.X, xyz.Y));
+                                            if (_vtPointsCache.Count > MaxTrackPointCount) _vtPointsCache.RemoveAt(0);
+                                        }
+                                    }
+                                }
+
+
                                 updatemsg();
                                 break;
 
@@ -890,6 +1034,130 @@ namespace LZ
 
         }
 
+        private void UpdateGeofenceUI()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (sGeofence.vecPoints == null || sGeofence.vecPoints.Length < 4)
+                    sGeofence.vecPoints = new SPoint[4];
+
+                uwb_fence_p1_lon.Text = sGeofence.vecPoints[0].dLongitude.ToString("F8");
+                uwb_fence_p1_lat.Text = sGeofence.vecPoints[0].dLatitude.ToString("F8");
+                uwb_fence_p2_lon.Text = sGeofence.vecPoints[1].dLongitude.ToString("F8");
+                uwb_fence_p2_lat.Text = sGeofence.vecPoints[1].dLatitude.ToString("F8");
+                uwb_fence_p3_lon.Text = sGeofence.vecPoints[2].dLongitude.ToString("F8");
+                uwb_fence_p3_lat.Text = sGeofence.vecPoints[2].dLatitude.ToString("F8");
+                uwb_fence_p4_lon.Text = sGeofence.vecPoints[3].dLongitude.ToString("F8");
+                uwb_fence_p4_lat.Text = sGeofence.vecPoints[3].dLatitude.ToString("F8");
+
+                UpdateMapGeofence();
+            });
+        }
+
+        private bool ReadGeofenceFromUI()
+        {
+            var lonTextBoxes = new[] { uwb_fence_p1_lon, uwb_fence_p2_lon, uwb_fence_p3_lon, uwb_fence_p4_lon };
+            var latTextBoxes = new[] { uwb_fence_p1_lat, uwb_fence_p2_lat, uwb_fence_p3_lat, uwb_fence_p4_lat };
+
+            if (sGeofence.vecPoints == null || sGeofence.vecPoints.Length < 4)
+                sGeofence.vecPoints = new SPoint[4];
+
+            for (int i = 0; i < 4; i++)
+            {
+                if (!double.TryParse(lonTextBoxes[i].Text.Trim(), out double longitude))
+                {
+                    MessageBox.Show($"顶点 {i + 1} 经度格式无效，请输入有效数字。", "UWB配置", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return false;
+                }
+
+                if (!double.TryParse(latTextBoxes[i].Text.Trim(), out double latitude))
+                {
+                    MessageBox.Show($"顶点 {i + 1} 纬度格式无效，请输入有效数字。", "UWB配置", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return false;
+                }
+
+                sGeofence.vecPoints[i].dLongitude = longitude;
+                sGeofence.vecPoints[i].dLatitude = latitude;
+            }
+
+            sGeofence.nPointCount = 4;
+            return true;
+        }
+
+        private void Read_Geofence_Button_Click(object sender, RoutedEventArgs e)
+        {
+            debugData.Header1 = 0xAA;
+            debugData.Header2 = 0x55;
+            debugData.DeviceType = 0x01;
+            debugData.FunctionCode = 0x86;
+            string paramStr = "CFG_Geofence_READ";
+
+            byte[] paramBytes = Encoding.UTF8.GetBytes(paramStr);
+            debugData.Length = (uint)paramBytes.Length;
+            Array.Copy(paramBytes, debugData.FuntionParamter, debugData.Length);
+
+            if (_client != null && _client.Connected && _stream != null)
+            {
+                try
+                {
+                    byte[] dataToSend = StructStreamReader.StructToByteArray(debugData);
+                    _stream.Write(dataToSend, 0, dataToSend.Length);
+                    AppendLog($"已发送电子围栏读取请求 {dataToSend.Length} 字节\r\n");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"发送失败: {ex.Message}\r\n");
+                }
+            }
+            else
+            {
+                AppendLog("TCP连接未建立，无法发送数据\r\n");
+            }
+        }
+
+        private void Write_Geofence_Button_Click(object sender, RoutedEventArgs e)
+        {
+            Read_Geofence_Button.IsEnabled = false;
+            if (!ReadGeofenceFromUI())
+            {
+                Read_Geofence_Button.IsEnabled = true;
+                return;
+            }
+
+            debugData.Header1 = 0xAA;
+            debugData.Header2 = 0x55;
+            debugData.DeviceType = 0x01;
+            debugData.FunctionCode = 0x87;
+
+            byte[] geofenceBytes = GeofenceToByteArray(sGeofence);
+            int copyLength = Math.Min(geofenceBytes.Length, debugData.FuntionParamter.Length);
+            Array.Copy(geofenceBytes, 0, debugData.FuntionParamter, 0, copyLength);
+            debugData.Length = (uint)copyLength;
+
+            if (_client != null && _client.Connected && _stream != null)
+            {
+                try
+                {
+                    byte[] dataToSend = StructStreamReader.StructToByteArray(debugData);
+                    _stream.Write(dataToSend, 0, dataToSend.Length);
+                    AppendLog($"已发送电子围栏写入请求 {dataToSend.Length} 字节\r\n");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"发送失败: {ex.Message}\r\n");
+                }
+                finally
+                {
+                    Read_Geofence_Button.IsEnabled = true;
+                }
+            }
+            else
+            {
+                AppendLog("TCP连接未建立，无法发送数据\r\n");
+                Read_Geofence_Button.IsEnabled = true;
+            }
+        }
+
 
 
         // 实时数据显示
@@ -1072,6 +1340,60 @@ namespace LZ
             {
                 Marshal.FreeHGlobal(ptr);
             }
+        }
+
+        private SGeofence ByteArrayToGeofence(byte[] data)
+        {
+            const int pointCountSize = sizeof(int);
+            const int pointSize = sizeof(double) * 2;
+            const int expectedSize = pointCountSize + pointSize * 4;
+
+            if (data.Length < pointCountSize)
+                throw new ArgumentException("数据长度不足，无法转换为SGeofence结构体");
+
+            // 期望线格式: int nPointCount + 4 * (double dLongitude + double dLatitude) = 68 字节
+            // C++ 不可 memcpy 含 std::vector 的 SGeofence，否则会发送 vector 内部指针而非坐标点
+            if (data.Length < expectedSize)
+            {
+                AppendLog($"警告: 电子围栏载荷仅 {data.Length} 字节，期望 {expectedSize} 字节。"
+                    + "请确认 C++ 端按 nPointCount + 4 个 SPoint 序列化，而非 memcpy 整个 SGeofence。\r\n");
+            }
+
+            var geofence = new SGeofence
+            {
+                nPointCount = Math.Min(BitConverter.ToInt32(data, 0), 4),
+                vecPoints = new SPoint[4]
+            };
+
+            int pointsToRead = Math.Min(4, (data.Length - pointCountSize) / pointSize);
+            for (int i = 0; i < pointsToRead; i++)
+            {
+                int offset = pointCountSize + i * pointSize;
+                geofence.vecPoints[i].dLongitude = BitConverter.ToDouble(data, offset);
+                geofence.vecPoints[i].dLatitude = BitConverter.ToDouble(data, offset + sizeof(double));
+            }
+
+            if (data.Length >= expectedSize)
+                geofence.nPointCount = 4;
+
+            return geofence;
+        }
+
+        private byte[] GeofenceToByteArray(SGeofence geofence)
+        {
+            const int pointCountSize = sizeof(int);
+            const int pointSize = sizeof(double) * 2;
+            byte[] bytes = new byte[pointCountSize + pointSize * 4];
+
+            BitConverter.GetBytes(geofence.nPointCount).CopyTo(bytes, 0);
+            for (int i = 0; i < 4; i++)
+            {
+                int offset = pointCountSize + i * pointSize;
+                BitConverter.GetBytes(geofence.vecPoints[i].dLongitude).CopyTo(bytes, offset);
+                BitConverter.GetBytes(geofence.vecPoints[i].dLatitude).CopyTo(bytes, offset + sizeof(double));
+            }
+
+            return bytes;
         }
 
 
@@ -2626,31 +2948,57 @@ namespace LZ
         private bool _wasOutsideFence = false;
         private void AddElectronicFence()
         {
-            // 1. 定义围栏的顶点坐标 (请替换为你实际测试场地的经纬度)
-            // 这里以你代码中现有的中心点 (28.35335215, 112.5094273) 附近为例
+            UpdateMapGeofence();
+        }
+
+        private void InitializeDefaultGeofenceUI()
+        {
+            sGeofence.nPointCount = 4;
+            if (sGeofence.vecPoints == null || sGeofence.vecPoints.Length < 4)
+                sGeofence.vecPoints = new SPoint[4];
+
+            sGeofence.vecPoints[0] = new SPoint { dLongitude = 112.511610870102, dLatitude = 28.3542445550822 };
+            sGeofence.vecPoints[1] = new SPoint { dLongitude = 112.511510038889, dLatitude = 28.3543953380492 };
+            sGeofence.vecPoints[2] = new SPoint { dLongitude = 112.51096714, dLatitude = 28.35402939 };
+            sGeofence.vecPoints[3] = new SPoint { dLongitude = 112.51107334, dLatitude = 28.35390217 };
+
+            uwb_fence_p1_lon.Text = sGeofence.vecPoints[0].dLongitude.ToString("F8");
+            uwb_fence_p1_lat.Text = sGeofence.vecPoints[0].dLatitude.ToString("F8");
+            uwb_fence_p2_lon.Text = sGeofence.vecPoints[1].dLongitude.ToString("F8");
+            uwb_fence_p2_lat.Text = sGeofence.vecPoints[1].dLatitude.ToString("F8");
+            uwb_fence_p3_lon.Text = sGeofence.vecPoints[2].dLongitude.ToString("F8");
+            uwb_fence_p3_lat.Text = sGeofence.vecPoints[2].dLatitude.ToString("F8");
+            uwb_fence_p4_lon.Text = sGeofence.vecPoints[3].dLongitude.ToString("F8");
+            uwb_fence_p4_lat.Text = sGeofence.vecPoints[3].dLatitude.ToString("F8");
+        }
+
+        private void UpdateMapGeofence()
+        {
+            if (OfflineMap == null || sGeofence.vecPoints == null || sGeofence.vecPoints.Length < 4)
+                return;
+
+            if (_electronicFence != null)
+                OfflineMap.Markers.Remove(_electronicFence);
+
             _fencePoints = new List<PointLatLng>
             {
-                new PointLatLng(28.3542445550822, 112.511610870102),
-                new PointLatLng(28.3543953380492, 112.511510038889),
-                new PointLatLng(28.35402939, 112.51096714),
-                new PointLatLng(28.35390217, 112.51107334),
+                new PointLatLng(sGeofence.vecPoints[0].dLatitude, sGeofence.vecPoints[0].dLongitude),
+                new PointLatLng(sGeofence.vecPoints[1].dLatitude, sGeofence.vecPoints[1].dLongitude),
+                new PointLatLng(sGeofence.vecPoints[2].dLatitude, sGeofence.vecPoints[2].dLongitude),
+                new PointLatLng(sGeofence.vecPoints[3].dLatitude, sGeofence.vecPoints[3].dLongitude),
             };
 
-            // 2. 创建 GMapPolygon
             _electronicFence = new GMapPolygon(_fencePoints);
 
-            // 3. 设置多边形的外观 (使用 WPF 的 Path)
             System.Windows.Shapes.Path polygonPath = new System.Windows.Shapes.Path
             {
-                Stroke = Brushes.OrangeRed,          // 边框颜色
-                StrokeThickness = 2,                 // 边框粗细
-                Fill = new SolidColorBrush(Color.FromArgb(50, 255, 69, 0)), // 填充颜色及透明度 (ARGB)
-                StrokeDashArray = new DoubleCollection { 4, 2 } // 虚线样式
+                Stroke = Brushes.OrangeRed,
+                StrokeThickness = 2,
+                Fill = new SolidColorBrush(Color.FromArgb(50, 255, 69, 0)),
+                StrokeDashArray = new DoubleCollection { 4, 2 }
             };
 
             _electronicFence.Shape = polygonPath;
-
-            // 4. 将多边形添加到地图的 Markers 集合中
             OfflineMap.Markers.Add(_electronicFence);
         }
 
@@ -2701,6 +3049,252 @@ namespace LZ
                 AppendLog($"加载 MBTiles 地图异常: {ex.Message}");
             }
         }
+
+        private void RenderTrajectoryPlot()
+        {
+            // 如果“轨迹图”Tab当前没有被激活选中，为了节约CPU资源可以不渲染
+            // （此处作为选做项，可以直接强制重绘）
+
+            // 1. 批量同步并更新 VUT 折线
+            lock (_vutPointsCache)
+            {
+                if (_vutPointsCache.Count > 0)
+                {
+                    var collection = new PointCollection();
+                    foreach (var pt in _vutPointsCache)
+                    {
+                        // Y取反：因为笛卡尔坐标系Y向上，Canvas的Y轴向下
+                        collection.Add(new System.Windows.Point(pt.X, -pt.Y));
+                    }
+                    Polyline_VUT.Points = collection;
+
+                    // 移动最新靶点
+                    var last = _vutPointsCache[^1];
+                    Marker_VUT.Visibility = Visibility.Visible;
+                    Canvas.SetLeft(Marker_VUT, last.X - 0.5);
+                    Canvas.SetTop(Marker_VUT, -last.Y - 0.5);
+                }
+            }
+
+            // 2. 批量同步并更新 SPT 折线
+            lock (_sptPointsCache)
+            {
+                if (_sptPointsCache.Count > 0)
+                {
+                    var collection = new PointCollection();
+                    foreach (var pt in _sptPointsCache)
+                    {
+                        collection.Add(new System.Windows.Point(pt.X, -pt.Y));
+                    }
+                    Polyline_SPT.Points = collection;
+
+                    var last = _sptPointsCache[^1];
+                    Marker_SPT.Visibility = Visibility.Visible;
+                    Canvas.SetLeft(Marker_SPT, last.X - 0.5);
+                    Canvas.SetTop(Marker_SPT, -last.Y - 0.5);
+                }
+            }
+
+            // 3. 批量同步并更新 VT 折线
+            lock (_vtPointsCache)
+            {
+                if (_vtPointsCache.Count > 0)
+                {
+                    var collection = new PointCollection();
+                    foreach (var pt in _vtPointsCache)
+                    {
+                        collection.Add(new System.Windows.Point(pt.X, -pt.Y));
+                    }
+                    Polyline_VT.Points = collection;
+
+                    var last = _vtPointsCache[^1];
+                    Marker_VT.Visibility = Visibility.Visible;
+                    Canvas.SetLeft(Marker_VT, last.X - 0.5);
+                    Canvas.SetTop(Marker_VT, -last.Y - 0.5);
+                }
+            }
+        }
+
+        private void Btn_ResetPlot_Click(object sender, RoutedEventArgs e)
+        {
+            if (PlotCanvas.ActualWidth == 0 || PlotCanvas.ActualHeight == 0) return;
+
+            // 1. 将缩放倍率重置为中等适中大小 (如 8 像素/米)
+            PlotScale.ScaleX = 8.0;
+            PlotScale.ScaleY = 8.0;
+
+            // 2. 将平移矩阵的 (0,0) 位置重新对齐到 Canvas 画布的正中央
+            PlotTranslate.X = PlotCanvas.ActualWidth / 2;
+            PlotTranslate.Y = PlotCanvas.ActualHeight / 2;
+
+            // 3. 在中心建立一个显眼的十字标靶或中心参考圆
+            DrawCenterTarget();
+
+            // 4. 更新文字提示
+            Txt_PlotScaleInfo.Text = "网格主间距: 5m | 缩放倍率: 8.0x (已复位居中)";
+        }
+
+        private void DrawCenterTarget()
+        {
+            // 移除旧的中心十字架/原点标志
+            var oldTargets = PlotCanvas.Children.OfType<FrameworkElement>().Where(x => x.Tag?.ToString() == "CenterTarget").ToList();
+            foreach (var item in oldTargets) PlotCanvas.Children.Remove(item);
+
+            // 绘制一个中心参考圆圈 (半径 2 米)
+            System.Windows.Shapes.Ellipse centerCircle = new System.Windows.Shapes.Ellipse
+            {
+                Width = 4,
+                Height = 4, // 对应直径 4 米
+                Stroke = Brushes.DimGray,
+                StrokeThickness = 0.08,
+                StrokeDashArray = new DoubleCollection { 2, 2 },
+                Tag = "CenterTarget"
+            };
+            Canvas.SetLeft(centerCircle, -2);
+            Canvas.SetTop(centerCircle, -2);
+
+            // 绘制一个实心小原点 (0,0)
+            System.Windows.Shapes.Ellipse centerDot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 0.5,
+                Height = 0.5,
+                Fill = Brushes.Black,
+                Tag = "CenterTarget"
+            };
+            Canvas.SetLeft(centerDot, -0.25);
+            Canvas.SetTop(centerDot, -0.25);
+
+            PlotCanvas.Children.Add(centerCircle);
+            PlotCanvas.Children.Add(centerDot);
+        }
+        // 初始化/改变尺寸时重置中心点
+        private void ResetPlotCanvasCenter()
+        {
+            double cx = PlotCanvas.ActualWidth / 2;
+            double cy = PlotCanvas.ActualHeight / 2;
+
+            // 将 Canvas 的基础原点定位到中心
+            PlotTranslate.X = cx;
+            PlotTranslate.Y = cy;
+
+            // 动态生成和铺设背景网格虚线
+            DrawBackgroundGrid();
+        }
+
+        // 动态画背景网格虚线（类似参考图）
+        private void DrawBackgroundGrid()
+        {
+            // 清理老旧的网格线（保留 Polyline 和 Marker）
+            var toRemove = PlotCanvas.Children.OfType<System.Windows.Shapes.Line>().ToList();
+            foreach (var item in toRemove) PlotCanvas.Children.Remove(item);
+
+            // 建立前后各200米的虚拟坐标网格，间距为5米一格
+            int range = 200;
+            int interval = 5;
+
+            // 绘制横/纵轴网格细线
+            for (int i = -range; i <= range; i += interval)
+            {
+                // 纵向平行线
+                var vLine = new System.Windows.Shapes.Line
+                {
+                    X1 = i,
+                    Y1 = -range,
+                    X2 = i,
+                    Y2 = range,
+                    Stroke = new SolidColorBrush(Color.FromRgb(230, 230, 230)),
+                    StrokeThickness = 0.05,
+                    StrokeDashArray = new DoubleCollection { 1, 2 }
+                };
+                // 横向平行线
+                var hLine = new System.Windows.Shapes.Line
+                {
+                    X1 = -range,
+                    Y1 = i,
+                    X2 = range,
+                    Y2 = i,
+                    Stroke = new SolidColorBrush(Color.FromRgb(230, 230, 230)),
+                    StrokeThickness = 0.05,
+                    StrokeDashArray = new DoubleCollection { 1, 2 }
+                };
+
+                // 突出粗显中心基准轴交叉线
+                if (i == 0)
+                {
+                    vLine.Stroke = Brushes.LightGray; vLine.StrokeThickness = 0.1; vLine.StrokeDashArray = null;
+                    hLine.Stroke = Brushes.LightGray; hLine.StrokeThickness = 0.1; hLine.StrokeDashArray = null;
+                }
+
+                // 插入到底层，防止遮挡定位线条
+                PlotCanvas.Children.Insert(0, vLine);
+                PlotCanvas.Children.Insert(0, hLine);
+            }
+        }
+
+
+
+        private void PlotCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            System.Windows.Point mousePos = e.GetPosition(PlotCanvas);
+            double zoomFactor = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
+
+            double oldScaleX = PlotScale.ScaleX;
+            double oldScaleY = PlotScale.ScaleY;
+
+            // 设置安全缩放区间（防止无限放大或缩小）
+            double newScaleX = Math.Clamp(oldScaleX * zoomFactor, 1.0, 150.0);
+            double newScaleY = Math.Clamp(oldScaleY * zoomFactor, 1.0, 150.0);
+
+            PlotScale.ScaleX = newScaleX;
+            PlotScale.ScaleY = newScaleY;
+
+            // 调整平移量，实现以鼠标指针为中心进行完美缩放
+            PlotTranslate.X -= (mousePos.X * (newScaleX - oldScaleX));
+            PlotTranslate.Y -= (mousePos.Y * (newScaleY - oldScaleY));
+
+            Txt_PlotScaleInfo.Text = $"网格主间距: 5m | 缩放倍率: {newScaleX:F1}x";
+            e.Handled = true;
+        }
+
+        private void PlotCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var container = sender as FrameworkElement;
+            if (container == null) return;
+
+            _isPlotDragging = true;
+            _mouseStartPoint = e.GetPosition(container);
+            container.CaptureMouse();
+        }
+
+        private void PlotCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            var container = sender as FrameworkElement;
+            if (container != null)
+            {
+                _isPlotDragging = false;
+                container.ReleaseMouseCapture();
+            }
+        }
+
+        private void PlotCanvas_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!_isPlotDragging) return;
+
+            var container = sender as FrameworkElement;
+            if (container == null) return;
+
+            System.Windows.Point currentPos = e.GetPosition(container);
+            double offsetX = currentPos.X - _mouseStartPoint.X;
+            double offsetY = currentPos.Y - _mouseStartPoint.Y;
+
+            // 更新平移变换值
+            PlotTranslate.X += offsetX;
+            PlotTranslate.Y += offsetY;
+
+            _mouseStartPoint = currentPos;
+        }
+
+
     }
 
 }

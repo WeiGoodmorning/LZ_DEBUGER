@@ -716,4 +716,19 @@ namespace LZ
         public double Z { get; set; }
     }
 
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct SPoint
+    {
+        public double dLongitude; // 经度 (X)
+        public double dLatitude;  // 纬度 (Y)
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct SGeofence
+    {
+        public int nPointCount;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
+        public SPoint[] vecPoints;
+    }
+
 }
